@@ -20,13 +20,16 @@ function anytls(name: string, server: string, port: number) {
 }
 
 const realHome = process.env.HOME as string;
+const realProfile = process.env.USERPROFILE as string | undefined;
 const tmpHome = mkdtempSync(join(tmpdir(), 'vpn-cli-'));
 
 beforeAll(() => {
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
 });
 afterAll(() => {
   process.env.HOME = realHome;
+  process.env.USERPROFILE = realProfile;
   rmSync(tmpHome, { recursive: true, force: true });
 });
 

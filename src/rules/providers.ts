@@ -3,6 +3,7 @@
  * 文本格式自动识别（payload: 头存在 = yaml 列表，否则每行一条）。
  */
 
+import { join } from 'node:path';
 import { logger } from '../core/log.ts';
 import { parseYaml, asMap, asSeq, asStr, type YamlValue } from '../config/yaml.ts';
 import type { RuleProviderConfig } from '../config/clash.ts';
@@ -92,7 +93,7 @@ export class RuleProviders {
   private cachePath(name: string): string | null {
     const dir = this.store.cacheDir();
     if (!dir) return null;
-    return `${dir}/ruleset-${name}.txt`;
+    return join(dir, `ruleset-${name}.txt`);
   }
 
   private async persistCache(name: string, text: string): Promise<void> {

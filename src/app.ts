@@ -2,6 +2,7 @@
  * App 装配（design.md §2）：配置 → 出站/组 → 规则引擎 → 入站/API。
  */
 
+import { join } from 'node:path';
 import { logger } from './core/log.ts';
 import { parseClashConfig, type ClashConfig } from './config/clash.ts';
 import { loadSubscription } from './config/subscription.ts';
@@ -136,7 +137,7 @@ export class App {
         log.info('rule providers loaded');
       }
     });
-    const geoip = await loadGeoip(cfg.geoipUrl, `${cache}/geoip.mmdb`);
+    const geoip = await loadGeoip(cfg.geoipUrl, join(cache, 'geoip.mmdb'));
     const finalTarget = cfg.rules.filter((r) => r.type === 'MATCH').length > 0 ? '' : 'DIRECT';
     this.engine = new RuleEngine({
       rules: cfg.rules,

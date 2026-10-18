@@ -12,13 +12,16 @@ import {
 import { DEFAULT_CONFIG_YAML } from '../../src/config/defaults.ts';
 
 const realHome = process.env.HOME as string;
+const realProfile = process.env.USERPROFILE as string | undefined;
 const tmpHome = mkdtempSync(join(tmpdir(), 'vpn-home-'));
 
 beforeAll(() => {
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
 });
 afterAll(() => {
   process.env.HOME = realHome;
+  process.env.USERPROFILE = realProfile;
   rmSync(tmpHome, { recursive: true, force: true });
 });
 

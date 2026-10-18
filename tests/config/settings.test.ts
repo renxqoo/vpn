@@ -10,6 +10,7 @@ import {
 } from '../../src/config/settings.ts';
 
 const realHome = process.env.HOME as string;
+const realProfile = process.env.USERPROFILE as string | undefined;
 const home = mkdtempSync(join(tmpdir(), 'vpn-settings-'));
 const cwd = mkdtempSync(join(tmpdir(), 'vpn-cwd-'));
 
@@ -23,9 +24,11 @@ function inputs(opts: Partial<FileInputs> = {}): FileInputs {
 
 beforeAll(() => {
   process.env.HOME = home;
+  process.env.USERPROFILE = home;
 });
 afterAll(() => {
   process.env.HOME = realHome;
+  process.env.USERPROFILE = realProfile;
   rmSync(home, { recursive: true, force: true });
   rmSync(cwd, { recursive: true, force: true });
 });

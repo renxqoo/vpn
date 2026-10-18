@@ -9,11 +9,17 @@ import { DEFAULT_CONFIG_YAML } from './defaults.ts';
 
 const log = logger('config:paths');
 
-export const HOME_CONFIG_DIR = (): string => `${process.env.HOME ?? '.'}/.vpn`;
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+/** 家目录：env 优先（Windows USERPROFILE / Unix HOME），os.homedir 兜底 */
+export const homeDir = (): string => process.env.USERPROFILE ?? process.env.HOME ?? homedir();
+
+export const HOME_CONFIG_DIR = (): string => join(homeDir(), '.vpn');
 /** 订阅快照 / 规则集 / mmdb 的缓存目录（随家目录，不污染启动 cwd） */
-export const cacheDirectory = (): string => `${HOME_CONFIG_DIR()}/cache`;
-export const HOME_CONFIG_PATH = (): string => `${HOME_CONFIG_DIR()}/config.yaml`;
-export const DOTENV_PATH = (): string => `${process.cwd()}/.env`;
+export const cacheDirectory = (): string => join(HOME_CONFIG_DIR(), 'cache');
+export const HOME_CONFIG_PATH = (): string => join(HOME_CONFIG_DIR(), 'config.yaml');
+export const DOTENV_PATH = (): string => join(process.cwd(), '.env');
 
 export interface EnvOverrides {
   subscriptionUrl?: string;

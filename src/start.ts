@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { logger, setLogLevel } from './core/log.ts';
 import { buildRuntimeConfig, collectFileInputs, mergeSource } from './config/settings.ts';
 import { cacheDirectory } from './config/paths.ts';
@@ -32,7 +33,7 @@ export function parseStartArgs(argv: string[]): StartArgs {
 export async function runStart(argv: string[]): Promise<void> {
   const args = parseStartArgs(argv);
   const cacheDir = cacheDirectory();
-  await Bun.write(`${cacheDir}/.keep`, '').catch(() => {});
+  await Bun.write(join(cacheDir, '.keep'), '').catch(() => {});
 
   const files = await collectFileInputs();
   const settings = mergeSource(files);

@@ -1,5 +1,6 @@
 /** 订阅拉取与缓存（design.md §1.5/D7）：线上优先、缓存兜底。 */
 
+import { join } from 'node:path';
 import { logger } from '../core/log.ts';
 
 const log = logger('config:subscription');
@@ -34,7 +35,7 @@ export async function loadSubscription(url: string, store: SubscriptionStore): P
 /** 生产 store：真实 fetch（clash UA）+ .cache/sub.yaml */
 export function defaultStore(cacheDir: string): SubscriptionStore {
   return {
-    cachePath: `${cacheDir}/sub.yaml`,
+    cachePath: join(cacheDir, 'sub.yaml'),
     async fetch(u: string): Promise<string> {
       const r = await fetch(u, { headers: { 'user-agent': 'clash-verge/v2.0.0' } });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
