@@ -1,3 +1,4 @@
+import type { HealthSummary } from '../../src/core/health.ts';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { RestApi } from '../../src/api/server.ts';
 import { ConnectionTracker } from '../../src/core/connections.ts';
@@ -5,6 +6,7 @@ import { RuleEngine } from '../../src/rules/index.ts';
 import { parseRuleLine } from '../../src/config/clash.ts';
 import { SelectGroup } from '../../src/rules/groups.ts';
 import { DirectOutbound } from '../../src/outbound/direct.ts';
+import type { Outbound } from '../../src/core/types.ts';
 
 let api: RestApi;
 let apiWithSecret: RestApi;
@@ -92,6 +94,39 @@ describe('rest api', () => {
       body: JSON.stringify({ now: 'x' }),
     });
     expect(r.status).toBe(400);
+  });
+
+  test('GET /proxies/:name exposes health for probe-capable outbound', async () => {
+    const withHealth = new (class implements Outbound {
+      readonly name = 'healthy-node';
+      connect(): Promise<never> {
+        return Promise.reject(new Error('stub'));
+      }
+      health(): HealthSummary {
+        return { alive: true, delayMs: 87, samples: 3, successRate: 1, avgDelayMs: 90 };
+      }
+      close(): void {}
+    })();
+    const api2 = new RestApi({
+      tracker,
+      outboundOf: (n) => (n === 'healthy-node' ? withHealth : undefined),
+      outboundNames: () => ['healthy-node'],
+      engine,
+      secret: '',
+      setMode: () => true,
+      currentMode: () => 'rule',
+    });
+    await api2.start('127.0.0.1:0');
+    try {
+      const r = await fetch(`http://127.0.0.1:${api2.port}/proxies/healthy-node`);
+      const j = await r.json() as { health: { alive: boolean; delay: number; avgDelay: number } | null };
+      expect(j.health).not.toBeNull();
+      expect(j.health?.alive).toBe(true);
+      expect(j.health?.delay).toBe(87);
+      expect(j.health?.avgDelay).toBe(90);
+    } finally {
+      api2.stop();
+    }
   });
 
   test('GET /rules', async () => {

@@ -107,8 +107,10 @@ export async function runNodesCommand(apiPortArg?: number): Promise<void> {
     p.cancel('订阅中没有可用的 anytls 节点');
     process.exit(1);
   }
-  const current = await readSelectedNode();
   const groups = groupByRegion(nodes);
+  const current = await readSelectedNode();
+  const apiPort = apiPortArg ?? 9090;
+  const healthByNode = await fetchNodeHealth(apiPort);
 
   p.intro('bun-clash 节点选择');
   type Opt = { value: { group: boolean; label: string }; label: string; hint?: string };
@@ -116,7 +118,13 @@ export async function runNodesCommand(apiPortArg?: number): Promise<void> {
   for (const [region, list] of groups.entries()) {
     options.push({ value: { group: true, label: region }, label: `— ${region} —`, hint: `${list.length} 个节点` });
     for (const n of list) {
-      options.push({ value: { group: false, label: n.name }, label: n.name, hint: n.server });
+      const h = healthByNode[n.name];
+      const hint = h
+        ? h.alive
+          ? `${h.delay}ms · ${n.server}`
+          : `不可用 · ${n.server}`
+        : n.server;
+      options.push({ value: { group: false, label: n.name }, label: n.name, hint });
     }
   }
   const currentEntry = current ? nodes.find((n) => n.name === current) : undefined;
@@ -135,7 +143,6 @@ export async function runNodesCommand(apiPortArg?: number): Promise<void> {
   const nodeName = (selected as { label: string }).label;
 
   const path = await writeSelectedNode(nodeName);
-  const apiPort = apiPortArg ?? 9090;
   const hot = await hotSwitch(apiPort, nodeName);
   const note =
     hot === 'switched'
@@ -144,4 +151,22 @@ export async function runNodesCommand(apiPortArg?: number): Promise<void> {
         ? `已写入 ${path}（内核未运行，下次启动生效）`
         : `已写入 ${path}，但热切换失败（内核运行中但切换未成功，重启后生效）`;
   p.outro(`✓ 节点: ${nodeName}\n${note}`);
+}
+
+
+async function fetchNodeHealth(apiPort: number): Promise<Record<string, { alive: boolean; delay: number | null }>> {
+  const out: Record<string, { alive: boolean; delay: number | null }> = {};
+  try {
+    const res = await fetch(`http://127.0.0.1:${apiPort}/proxies`, { signal: AbortSignal.timeout(1500) });
+    if (!res.ok) return out;
+    const data = (await res.json()) as {
+      proxies: Record<string, { health?: { alive: boolean; delay: number | null } | null }>;
+    };
+    for (const [name, info] of Object.entries(data.proxies)) {
+      if (info.health) out[name] = { alive: info.health.alive, delay: info.health.delay };
+    }
+  } catch (_e) {
+    /* 内核未运行——列表无延迟列 */
+  }
+  return out;
 }

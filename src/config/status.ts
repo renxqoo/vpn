@@ -8,6 +8,7 @@ import * as p from '@clack/prompts';
 import { collectFileInputs, mergeSource } from './settings.ts';
 import { readSelectedNode } from './nodes.ts';
 import { readMode } from './mode.ts';
+import { regionOf } from './nodes.ts';
 
 export interface ApiState {
   mode: 'rule' | 'global' | 'direct';
@@ -133,6 +134,16 @@ export async function runStatusCommand(apiPortArg?: number): Promise<void> {
     p.log.message(`  规则数  ${api.rules} · 节点 ${api.proxies} 个`);
   }
 
+  // 节点健康段（每地区代表节点：地区首个节点的最近探测）
+  const regionHealth = await fetchRegionHealth(apiPort);
+  if (regionHealth.length > 0) {
+    p.log.message('  节点状态（每地区代表，最近探测）');
+    for (const r of regionHealth) {
+      const state = r.alive ? `✓ ${r.delay}ms` : '✗ 不可用';
+      p.log.message(`    ${r.region.padEnd(4, '　')} ${state}`);
+    }
+  }
+
   p.outro(api ? '提示：bun-clash nodes / mode 可切换；usage 看流量' : '提示：bun-clash start 启动内核');
 }
 
@@ -148,5 +159,36 @@ function maskUrl(url: string): string {
     return `${u.host}/${seg.join('/')}${u.search}`;
   } catch (_e) {
     return url;
+  }
+}
+
+
+interface RegionHealth {
+  region: string;
+  alive: boolean;
+  delay: number | null;
+}
+
+async function fetchRegionHealth(apiPort: number): Promise<RegionHealth[]> {
+  const base = `http://127.0.0.1:${apiPort}`;
+  try {
+    const res = await fetch(`${base}/proxies`, { signal: AbortSignal.timeout(1500) });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      proxies: Record<string, { type: string; health?: { alive: boolean; delay: number | null } | null }>;
+    };
+    const out: RegionHealth[] = [];
+    const seenRegion = new Set<string>();
+    for (const [name, info] of Object.entries(data.proxies)) {
+      if (info.type === 'Selector' || info.type === 'URLTest' || info.type === 'URLFallback') continue;
+      const region = regionOf(name);
+      if (seenRegion.has(region)) continue;
+      if (!info.health) continue; // 未探测过的跳过（不冒充可用）
+      seenRegion.add(region);
+      out.push({ region, alive: info.health.alive, delay: info.health.delay });
+    }
+    return out;
+  } catch (_e) {
+    return [];
   }
 }

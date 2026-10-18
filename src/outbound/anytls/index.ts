@@ -5,6 +5,7 @@
 import type { SocksAddr } from '../../core/socksaddr.ts';
 import type { Conn, Outbound } from '../../core/types.ts';
 import { AnytlsClient } from './client.ts';
+import { aggregateHealth, recordSample, type HealthSample, type HealthSummary } from '../../core/health.ts';
 import { AnytlsStream, EofError } from './session.ts';
 
 class AnytlsConn implements Conn {
@@ -62,6 +63,7 @@ class AnytlsConn implements Conn {
 export class AnytlsOutbound implements Outbound {
   readonly name: string;
   private client: AnytlsClient;
+  private healthHistory: HealthSample[] = [];
 
   constructor(name: string, client: AnytlsClient) {
     this.name = name;
@@ -73,8 +75,18 @@ export class AnytlsOutbound implements Outbound {
     return AnytlsConn.open(this.client, target);
   }
 
+  /** 健康摘要（API/CLI 消费） */
+  health(): HealthSummary {
+    return aggregateHealth(this.healthHistory);
+  }
+
   async probe(_url: string, timeoutMs: number): Promise<number | null> {
-    // 通过该节点请求探测 URL，返回总延迟（ms）；失败 null
+    const delay = await this.probeInner(_url, timeoutMs);
+    this.healthHistory = recordSample(this.healthHistory, { at: Date.now(), delayMs: delay });
+    return delay;
+  }
+
+  private async probeInner(_url: string, timeoutMs: number): Promise<number | null> {
     const start = Date.now();
     try {
       const url = new URL(_url);

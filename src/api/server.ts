@@ -9,6 +9,7 @@ import type { ConnectionTracker } from '../core/connections.ts';
 import type { Outbound } from '../core/types.ts';
 import type { RuleEngine } from '../rules/index.ts';
 import { SelectGroup } from '../rules/groups.ts';
+import type { HealthSummary } from '../core/health.ts';
 
 const log = logger('api');
 
@@ -264,7 +265,21 @@ export class RestApi {
         now: typeof group.current === 'function' ? group.current() : undefined,
         all: typeof auto.memberNames === 'function' ? auto.memberNames() : undefined,
         history: typeof auto.delays === 'function' ? auto.delays() : {} as Record<string, number | null>,
+        health: healthView(outbound),
         udp: false,
+      };
+    }
+
+    function healthView(outbound: Outbound): Record<string, unknown> | null {
+      const cap = outbound as unknown as { health?(): HealthSummary };
+      if (typeof cap.health !== 'function') return null;
+      const h = cap.health();
+      return {
+        alive: h.alive,
+        delay: h.delayMs,
+        avgDelay: h.avgDelayMs,
+        successRate: h.successRate,
+        samples: h.samples,
       };
     }
   }
