@@ -96,6 +96,17 @@ dns/sniffer/tun 等键在 V1 中忽略（有警告日志）。
 V1 明确不做（不装已实现的样子）：DNS/fake-ip、UDP 代理、TUN/系统代理接管、sniffer、
 TLS client-fingerprint 伪装。见 docs/design.md §0。
 
+## 功能总览
+
+- **代理内核**：AnyTLS 出站（会话多路复用、padding、SYNACK/心跳）、HTTP/SOCKS5 入站、
+  规则路由（domain/ipcidr/geoip/ruleset）、策略组（select/url-test/fallback）、模式热切换
+  （规则/全局/直连，`PATCH /configs`）
+- **可观测**：每节点探测历史（延迟/成功率）、连接级双向字节计量与会话累计、
+  `status` 一屏展示运行态（模式/出口/延迟/实时网速/会话流量/各地区节点健康）
+- **CLI**：`start` / `nodes`（交互 + `--node` 非交互）/ `mode`（交互 + `--set`）/
+  `usage`（订阅余量与到期）/ `status` / `config`
+- **平台**：macOS / Linux / Windows（CI 三平台跑 check/lint/build/test）
+
 ## 开发
 
 ```bash
