@@ -51,7 +51,8 @@ export class RestApi {
       this.port = this.server.port;
       log.info(`api on 127.0.0.1:${this.port}`);
     } catch (e) {
-      log.warn(`api bind failed (${String(e).slice(0, 60)}); proxy continues without api (D3b)`);
+      log.error(`api bind failed on 127.0.0.1:${port}: ${String(e).slice(0, 80)}`);
+      throw e;
     }
   }
 

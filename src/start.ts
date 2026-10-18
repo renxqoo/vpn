@@ -49,7 +49,7 @@ export async function runStart(argv: string[]): Promise<void> {
     log.warn('写入订阅: bun-clash config set-subscription <URL>，然后重启');
   }
 
-  const app = new App({ config: runtime.config, cacheDir, overrides: runtime.config });
+  const app = new App({ config: runtime.config, cacheDir, overrides: runtime.overrides });
   await app.start();
   const modeLabel = { rule: '规则', global: '全局', direct: '直连' }[app.currentMode()] ?? app.currentMode();
   log.info(`配置来源: ${runtime.sourceLabel}；模式: ${modeLabel}`);

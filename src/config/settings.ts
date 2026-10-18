@@ -82,9 +82,16 @@ export interface BuildOptions {
 export interface RuntimeConfig {
   config: ClashConfig;
   settings: RuntimeSettings;
+  overrides: { httpPort: number; socksPort: number; apiPort: number };
   sourceLabel: string;
   needsSubscriptionGuide: boolean;
   warnings: string[];
+}
+
+function parseApiPort(addr: string | null | undefined): number | undefined {
+  if (!addr) return undefined;
+  const m = /:(\d+)$/.exec(addr);
+  return m ? Number(m[1]) : undefined;
 }
 
 const DIRECT_FALLBACK_RULES: ClashConfig['rules'] = [
@@ -152,9 +159,16 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
   if (opts.files.dotenvText !== null && settings.source !== 'dotenv') parts.push('.env（端口覆盖）');
   const sourceLabel = parts.length > 0 ? parts.join(' + ') : '空（直连）';
 
+  const effectiveApiPort = overrides.apiPort ?? parseApiPort(config.apiAddr) ?? 9090;
+
   return {
     config: finalConfig,
     settings: { ...settings, selectedNode: settings.selectedNode },
+    overrides: {
+      httpPort: finalConfig.httpPort,
+      socksPort: finalConfig.socksPort,
+      apiPort: effectiveApiPort,
+    },
     sourceLabel,
     needsSubscriptionGuide: needsGuide,
     warnings,
