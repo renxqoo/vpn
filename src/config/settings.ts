@@ -119,9 +119,11 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
       ruleProviders: new Map(),
     };
   } else {
-    const yaml = opts.subscriptionYaml;
-    if (yaml === null) throw new Error('subscription yaml required');
-    config = parseClashConfig(yaml);
+    if (opts.subscriptionYaml === null) {
+      // 订阅存在但内容不可得（拉取失败）：settings 层无法兜底——start 层负责失败语义
+      throw new Error('subscription yaml required');
+    }
+    config = parseClashConfig(opts.subscriptionYaml);
   }
 
   const finalConfig: ClashConfig = {

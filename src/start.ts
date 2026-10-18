@@ -1,5 +1,5 @@
 import { logger, setLogLevel } from './core/log.ts';
-import { buildRuntimeConfig, collectFileInputs } from './config/settings.ts';
+import { buildRuntimeConfig, collectFileInputs, mergeSource } from './config/settings.ts';
 import { cacheDirectory } from './config/paths.ts';
 import { defaultStore, loadSubscription } from './config/subscription.ts';
 import { App } from './app.ts';
@@ -35,10 +35,10 @@ export async function runStart(argv: string[]): Promise<void> {
   await Bun.write(`${cacheDir}/.keep`, '').catch(() => {});
 
   const files = await collectFileInputs();
+  const settings = mergeSource(files);
   let subscriptionYaml: string | null = null;
-  const probe = await buildRuntimeConfig({ files, subscriptionYaml: null, cli: args });
-  if (probe.settings.subscriptionUrl && !args.direct) {
-    subscriptionYaml = await loadSubscription(probe.settings.subscriptionUrl, defaultStore(cacheDir));
+  if (settings.subscriptionUrl && !args.direct) {
+    subscriptionYaml = await loadSubscription(settings.subscriptionUrl, defaultStore(cacheDir));
   }
 
   const runtime = await buildRuntimeConfig({ files, subscriptionYaml, cli: args });

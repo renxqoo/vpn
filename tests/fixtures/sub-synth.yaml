@@ -71,6 +71,12 @@ proxy-groups:
     - '香港 03'
     - '香港 02'
     - '香港 09'
+-
+  name: '🐟 漏网之鱼'
+  type: select
+  proxies:
+    - '🚀 节点选择'
+    - DIRECT
 rule-providers:
   reject:
     type: http
@@ -86,7 +92,7 @@ rules:
   - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
   - IP-CIDR6,fe80::/10,DIRECT,no-resolve
   - GEOIP,LAN,DIRECT,no-resolve
-  - GEOIP,CN,DIRECT
+  - GEOIP,CN,DIRECT,no-resolve
   - MATCH,🐟 漏网之鱼
   - RULE-SET,reject,REJECT
   - DOMAIN-SUFFIX,10.google.com,🚀 节点选择
@@ -95,5 +101,5 @@ rules:
   - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
   - IP-CIDR6,fe80::/10,DIRECT,no-resolve
   - GEOIP,LAN,DIRECT,no-resolve
-  - GEOIP,CN,DIRECT
+  - GEOIP,CN,DIRECT,no-resolve
   - MATCH,DIRECT
