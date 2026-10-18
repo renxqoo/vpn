@@ -54,8 +54,14 @@ for (const g of GLOBS) {
         }
       }
       // R3 console.*（tools/main/log 免检）
-      const consoleOk =
-        /^(tools\/|src\/main\.ts|src\/core\/log\.ts|src\/cli\.ts|src\/start\.ts|src\/config-cmd\.ts|src\/config\/mode\.ts)/;
+      const consoleOk = new RegExp(
+        [
+          '^tools\\/',
+          '^src\\/(main|cli|start|config-cmd)\\.ts',
+          '^src\\/core\\/log\\.ts',
+          '^src\\/config\\/mode\\.ts',
+        ].join('|'),
+      );
       if (!consoleOk.test(path) && /\bconsole\./.test(line)) {
         issues.push({ file: path, line: lineNo, rule: 'R3', msg: 'no console.* (use core/log)' });
       }
