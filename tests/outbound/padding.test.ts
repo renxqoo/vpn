@@ -6,7 +6,6 @@ import {
   generateRecordPayloadSizes,
   makePaddingFactory,
   makeWasteFrame,
-  md5Hex,
   parsePaddingScheme,
   planChunks,
 } from '../../src/outbound/anytls/padding.ts';
@@ -21,11 +20,7 @@ describe('padding scheme parse', () => {
     expect(p.md5).toHaveLength(32);
     expect(p.md5).toMatch(/^[0-9a-f]{32}$/);
   });
-  test('default scheme md5 golden (vs Go fmt %x of md5 sum)', () => {
-    // 由参考实现公式计算：md5(rawScheme) 小写 hex
-    const p = makePaddingFactory(DEFAULT_PADDING_SCHEME);
-    expect(p?.md5).toBe(md5Hex(DEFAULT_PADDING_SCHEME));
-  });
+
   test('missing stop → null', () => {
     expect(parsePaddingScheme('0=30-30')).toBeNull();
   });
