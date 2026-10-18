@@ -170,7 +170,6 @@ function maskUrl(url: string): string {
   }
 }
 
-
 interface RegionHealth {
   region: string;
   alive: boolean;

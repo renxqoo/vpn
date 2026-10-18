@@ -59,8 +59,24 @@ export async function hotSwitchMode(apiPort: number, mode: ModeName): Promise<'s
   }
 }
 
-export async function runModeCommand(apiPortArg?: number): Promise<void> {
+export async function runModeCommand(apiPortArg?: number, directSet?: string): Promise<void> {
   const current = await readMode();
+  if (directSet !== undefined) {
+    if (directSet !== 'rule' && directSet !== 'global' && directSet !== 'direct') {
+      console.error(`无效模式: ${directSet}（可选 rule | global | direct）`);
+      process.exit(1);
+    }
+    const path = await writeMode(directSet);
+    const hot = await hotSwitchMode(apiPortArg ?? 9090, directSet);
+    const note =
+      hot === 'switched'
+        ? '已写入配置并热切换生效'
+        : hot === 'not-running'
+          ? `已写入 ${path}（内核未运行，下次启动生效）`
+          : `已写入 ${path}，热切换失败（重启后生效）`;
+    console.log(`✓ 模式: ${MODE_LABELS[directSet]}\n${note}`);
+    return;
+  }
   p.intro('bun-clash 代理模式');
   const selected = await p.select({
     message: `选择模式（当前: ${MODE_LABELS[current]}）`,

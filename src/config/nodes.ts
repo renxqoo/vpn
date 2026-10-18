@@ -92,7 +92,10 @@ export async function hotSwitch(apiPort: number, nodeName: string): Promise<'swi
   }
 }
 
-export async function runNodesCommand(apiPortArg?: number): Promise<void> {
+export async function runNodesCommand(
+  apiPortArg?: number,
+  directPick?: string,
+): Promise<void> {
   const src = mergeSource(await collectFileInputs());
   if (!src.subscriptionUrl) {
     p.intro('bun-clash 节点选择');
@@ -109,6 +112,11 @@ export async function runNodesCommand(apiPortArg?: number): Promise<void> {
   }
   const groups = groupByRegion(nodes);
   const current = await readSelectedNode();
+  if (directPick !== undefined) {
+    const apiPort = apiPortArg ?? 9090;
+    await applyPick(directPick, apiPort, nodes);
+    return;
+  }
   const apiPort = apiPortArg ?? 9090;
   const healthByNode = await fetchNodeHealth(apiPort);
 
@@ -137,11 +145,19 @@ export async function runNodesCommand(apiPortArg?: number): Promise<void> {
   });
 
   if (p.isCancel(selected) || (selected as { group: boolean }).group) {
-    p.cancel('未选择');
-    process.exit(0);
+    p.cancel('未选择（交互取消或当前环境不支持交互式选择——终端运行，或用 --node <节点名>）');
+    process.exit(1);
   }
   const nodeName = (selected as { label: string }).label;
+  await applyPick(nodeName, apiPort);
+}
 
+/** 选中后共享路径：校验存在 → 落库 → 热切换 → 结果输出 */
+async function applyPick(nodeName: string, apiPort: number, nodes?: NodeEntry[]): Promise<void> {
+  if (nodes && !nodes.some((n) => n.name === nodeName)) {
+    p.cancel(`节点不存在: ${nodeName}（可用节点见 bun-clash nodes 交互列表）`);
+    process.exit(1);
+  }
   const path = await writeSelectedNode(nodeName);
   const hot = await hotSwitch(apiPort, nodeName);
   const note =
@@ -152,7 +168,6 @@ export async function runNodesCommand(apiPortArg?: number): Promise<void> {
         : `已写入 ${path}，但热切换失败（内核运行中但切换未成功，重启后生效）`;
   p.outro(`✓ 节点: ${nodeName}\n${note}`);
 }
-
 
 async function fetchNodeHealth(apiPort: number): Promise<Record<string, { alive: boolean; delay: number | null }>> {
   const out: Record<string, { alive: boolean; delay: number | null }> = {};

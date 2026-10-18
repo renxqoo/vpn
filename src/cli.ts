@@ -31,7 +31,9 @@ const commands: Command[] = [
     summary: '交互选择节点（写配置 + 运行中热切换）',
     async run(args) {
       const { runNodesCommand } = await import('./config/nodes.ts');
-      await runNodesCommand(findApiPort(args));
+      const nodeFlag = args.indexOf('--node');
+      const directPick = nodeFlag >= 0 ? (args[nodeFlag + 1] as string) : undefined;
+      await runNodesCommand(findApiPort(args), directPick);
     },
   },
   {
@@ -47,7 +49,9 @@ const commands: Command[] = [
     summary: '选择代理模式：规则 / 全局 / 直连（写配置 + 运行中热切换）',
     async run(args) {
       const { runModeCommand } = await import('./config/mode.ts');
-      await runModeCommand(findApiPort(args));
+      const setFlag = args.indexOf('--set');
+      const directSet = setFlag >= 0 ? (args[setFlag + 1] as string) : undefined;
+      await runModeCommand(findApiPort(args), directSet);
     },
   },
   {
@@ -78,6 +82,7 @@ ${commands.map((c) => `  ${c.name.padEnd(18)}${c.summary}`).join('\n')}
 示例：
   bun-clash start                     启动（订阅来自 ~/.vpn/config.yaml 或项目 .env）
   bun-clash nodes                     交互选择节点
+  bun-clash nodes --node 台湾 01      非交互直选节点（脚本/CI 用）
   bun-clash status                    运行状态总览
   bun-clash mode                      切换 规则/全局/直连
   bun-clash usage                     订阅剩余流量

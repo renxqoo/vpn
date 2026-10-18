@@ -185,7 +185,6 @@ function reorderGroupFirst(group: ProxyGroupConfig, nodeName: string): void {
 
 void DEFAULT_CONFIG_YAML;
 
-
 async function readFileIfExists(path: string): Promise<string | null> {
   const f = Bun.file(path);
   return (await f.exists()) ? f.text() : null;
