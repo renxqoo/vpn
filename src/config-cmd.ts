@@ -1,12 +1,7 @@
 /** config 子命令（从原 main.ts 拆出；design.md §1.1 第三批）。 */
 
-import {
-  DOTENV_PATH,
-  HOME_CONFIG_PATH,
-  extractSubscriptionUrl,
-  resolveConfigSource,
-  setSubscription,
-} from './config/paths.ts';
+import { DOTENV_PATH, HOME_CONFIG_PATH, setSubscription } from './config/paths.ts';
+import { collectFileInputs, mergeSource } from './config/settings.ts';
 import { PROGRAM_VERSION } from './core/version.ts';
 
 function usage(): void {
@@ -26,10 +21,7 @@ export async function runConfigCommand(sub: string[]): Promise<void> {
     return;
   }
   if (cmd === 'show') {
-    const src = await resolveConfigSource();
-    const homeText = await Bun.file(HOME_CONFIG_PATH()).text();
-    const home = extractSubscriptionUrl(homeText);
-    const modeMatch = /^mode:\s*(\w+)/m.exec(homeText);
+    const src = mergeSource(await collectFileInputs());
     const dotenvExists = await Bun.file(DOTENV_PATH()).exists();
     console.log(`bun-clash ${PROGRAM_VERSION} 配置`);
     console.log(`  生效订阅: ${src.subscriptionUrl ?? '（空——直连模式）'}`);
@@ -38,11 +30,12 @@ export async function runConfigCommand(sub: string[]): Promise<void> {
         src.source === 'dotenv' ? '.env（dev）' : src.source === 'home' ? '~/.vpn/config.yaml（正式）' : '无（空订阅）'
       }`,
     );
-    console.log(`  代理模式: ${modeMatch?.[1] ?? 'rule'}`);
-    if (src.httpPort) console.log(`  HTTP 端口(.env覆盖): ${src.httpPort}`);
-    if (src.socksPort) console.log(`  SOCKS 端口(.env覆盖): ${src.socksPort}`);
-    if (src.apiPort) console.log(`  API 端口(.env覆盖): ${src.apiPort}`);
-    console.log(`  ${HOME_CONFIG_PATH()} 订阅: ${home.url ?? '（空）'}`);
+    console.log(`  代理模式: ${src.mode}`);
+    if (src.selectedNode) console.log(`  选中节点: ${src.selectedNode}`);
+    if (src.httpPort) console.log(`  HTTP 端口: ${src.httpPort}`);
+    if (src.socksPort) console.log(`  SOCKS 端口: ${src.socksPort}`);
+    if (src.apiPort) console.log(`  API 端口: ${src.apiPort}`);
+    console.log(`  配置文件: ${HOME_CONFIG_PATH()}`);
     console.log(`  ${DOTENV_PATH()}: ${dotenvExists ? '存在' : '不存在'}`);
     return;
   }

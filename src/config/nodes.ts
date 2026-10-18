@@ -6,8 +6,9 @@
  */
 
 import * as p from '@clack/prompts';
+import { collectFileInputs, mergeSource } from './settings.ts';
 import { parseClashConfig } from '../config/clash.ts';
-import { HOME_CONFIG_PATH, cacheDirectory, resolveConfigSource } from '../config/paths.ts';
+import { HOME_CONFIG_PATH, cacheDirectory } from './paths.ts';
 import { defaultStore, loadSubscription } from '../config/subscription.ts';
 import type { AnytlsProxyConfig, ProxyConfig } from '../config/clash.ts';
 
@@ -92,7 +93,7 @@ export async function hotSwitch(apiPort: number, nodeName: string): Promise<'swi
 }
 
 export async function runNodesCommand(apiPortArg?: number): Promise<void> {
-  const src = await resolveConfigSource();
+  const src = mergeSource(await collectFileInputs());
   if (!src.subscriptionUrl) {
     p.intro('bun-clash 节点选择');
     p.cancel('未配置订阅地址（.env 或 bun run config set-subscription）');

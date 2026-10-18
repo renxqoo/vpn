@@ -5,7 +5,7 @@
  */
 
 import * as p from '@clack/prompts';
-import { resolveConfigSource } from './paths.ts';
+import { collectFileInputs, mergeSource } from './settings.ts';
 import { readSelectedNode } from './nodes.ts';
 import { readMode } from './mode.ts';
 
@@ -90,7 +90,7 @@ function fmtBytes(n: number): string {
 const MODE_CN: Record<ApiState['mode'], string> = { rule: '规则', global: '全局', direct: '直连' };
 
 export async function runStatusCommand(apiPortArg?: number): Promise<void> {
-  const src = await resolveConfigSource();
+  const src = mergeSource(await collectFileInputs());
   const selected = await readSelectedNode();
   const modeInConfig = await readMode();
   const apiPort = apiPortArg ?? 9090;

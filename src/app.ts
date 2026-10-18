@@ -12,7 +12,6 @@ import { RuleEngine } from './rules/index.ts';
 import { RuleProviders } from './rules/providers.ts';
 import { loadGeoip } from './rules/geoip.ts';
 import { buildGroup } from './rules/groups.ts';
-import { readSelectedNode } from './config/nodes.ts';
 import { SelectGroup } from './rules/groups.ts';
 import { HttpInbound } from './inbound/http.ts';
 import { Socks5Inbound } from './inbound/socks5.ts';
@@ -105,18 +104,6 @@ export class App {
     for (const g of cfg.groups) {
       if (!groupOutbounds.has(g.name)) {
         log.warn(`group '${g.name}' could not be built (missing members)`);
-      }
-    }
-    // selected-node（CLI `bun run nodes` 写入）启动生效
-    const selectedNode = await readSelectedNode();
-    if (selectedNode) {
-      const groupOutbound = this.outbounds.get('🚀 节点选择') as SelectGroup | undefined;
-      if (groupOutbound && typeof groupOutbound.select === 'function') {
-        if (groupOutbound.select(selectedNode)) {
-          log.info(`selected-node '${selectedNode}' applied to ${this.groupLabel}`);
-        } else {
-          log.warn(`selected-node '${selectedNode}' not found in group, ignored`);
-        }
       }
     }
 

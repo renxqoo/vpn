@@ -4,10 +4,10 @@
 
 import * as p from '@clack/prompts';
 import { fetchUserinfo, renderUsage } from './usage.ts';
-import { resolveConfigSource } from './paths.ts';
+import { collectFileInputs, mergeSource } from './settings.ts';
 
 export async function runUsageCommand(): Promise<void> {
-  const src = await resolveConfigSource();
+  const src = mergeSource(await collectFileInputs());
   if (!src.subscriptionUrl) {
     p.intro('bun-clash 订阅用量');
     p.cancel('未配置订阅地址（.env 或 bun run config set-subscription）');

@@ -1,29 +1,20 @@
-/** start 子命令（原 main.ts 的启动职责；design.md §1.1 第三批拆分）。 */
-
 import { logger, setLogLevel } from './core/log.ts';
-import { parseClashConfig } from './config/clash.ts';
+import { buildRuntimeConfig, collectFileInputs } from './config/settings.ts';
+import { cacheDirectory } from './config/paths.ts';
 import { defaultStore, loadSubscription } from './config/subscription.ts';
-import { cacheDirectory, resolveConfigSource } from './config/paths.ts';
 import { App } from './app.ts';
-import type { ClashConfig } from './config/clash.ts';
 
 const log = logger('start');
 
-const EMPTY_CONFIG: ClashConfig = {
-  httpPort: 7890,
-  socksPort: 7891,
-  mode: 'rule',
-  logLevel: 'info',
-  apiAddr: '127.0.0.1:9090',
-  apiSecret: '',
-  proxies: [],
-  groups: [],
-  rules: [{ type: 'MATCH', payload: '', target: 'DIRECT', noResolve: false, raw: 'MATCH,DIRECT' }],
-  ruleProviders: new Map(),
-};
+interface StartArgs {
+  port?: number;
+  socksPort?: number;
+  apiPort?: number;
+  direct: boolean;
+}
 
-function parseStartArgs(argv: string[]): { port?: number; socksPort?: number; apiPort?: number; direct: boolean } {
-  const out: { port?: number; socksPort?: number; apiPort?: number; direct: boolean } = { direct: false };
+export function parseStartArgs(argv: string[]): StartArgs {
+  const out: StartArgs = { direct: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] as string;
     if (a === '--port') out.port = Number(argv[++i]);
@@ -43,32 +34,25 @@ export async function runStart(argv: string[]): Promise<void> {
   const cacheDir = cacheDirectory();
   await Bun.write(`${cacheDir}/.keep`, '').catch(() => {});
 
-  const src = await resolveConfigSource();
-  const overrides = {
-    httpPort: args.port ?? src.httpPort,
-    socksPort: args.socksPort ?? src.socksPort,
-    apiPort: args.apiPort ?? src.apiPort,
-  };
-
-  let config: ClashConfig;
-  if (args.direct || !src.subscriptionUrl) {
-    if (!args.direct) {
-      log.warn('订阅地址为空（.env 与 ~/.vpn/config.yaml 均未配置）——以直连模式启动');
-      log.warn('写入订阅: bun-clash config set-subscription <URL>，然后重启');
-    }
-    config = { ...EMPTY_CONFIG, httpPort: overrides.httpPort ?? 7890, socksPort: overrides.socksPort ?? 7891 };
-  } else {
-    const text = await loadSubscription(src.subscriptionUrl, defaultStore(cacheDir));
-    config = parseClashConfig(text);
+  const files = await collectFileInputs();
+  let subscriptionYaml: string | null = null;
+  const probe = await buildRuntimeConfig({ files, subscriptionYaml: null, cli: args });
+  if (probe.settings.subscriptionUrl && !args.direct) {
+    subscriptionYaml = await loadSubscription(probe.settings.subscriptionUrl, defaultStore(cacheDir));
   }
-  setLogLevel(config.logLevel === 'silent' ? 'warn' : 'info');
 
-  const app = new App({ config, cacheDir, overrides });
+  const runtime = await buildRuntimeConfig({ files, subscriptionYaml, cli: args });
+  setLogLevel(runtime.config.logLevel === 'silent' ? 'warn' : 'info');
+
+  if (runtime.needsSubscriptionGuide) {
+    log.warn('订阅地址为空（.env 与 ~/.vpn/config.yaml 均未配置）——以直连模式启动');
+    log.warn('写入订阅: bun-clash config set-subscription <URL>，然后重启');
+  }
+
+  const app = new App({ config: runtime.config, cacheDir, overrides: runtime.config });
   await app.start();
-  log.info(
-    `配置来源: ${src.source === 'dotenv' ? '.env（dev）' : src.source === 'home' ? '~/.vpn/config.yaml' : '空（直连）'}；` +
-      `模式: ${config.mode === 'rule' ? '规则' : config.mode === 'global' ? '全局' : '直连'}`,
-  );
+  const modeLabel = { rule: '规则', global: '全局', direct: '直连' }[app.currentMode()] ?? app.currentMode();
+  log.info(`配置来源: ${runtime.sourceLabel}；模式: ${modeLabel}`);
 
   let stopping = false;
   const shutdown = async () => {

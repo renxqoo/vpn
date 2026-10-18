@@ -1,8 +1,7 @@
 /**
- * 配置来源解析（design.md §1.1 用户裁决 2026-10-19）：
- * 1. dev：项目根 .env（SUBSCRIPTION_URL / PORT / SOCKS_PORT / API_PORT）——存在即优先
+ * 配置文件定位与读写（合并语义在 settings.ts 的 mergeSource）：
+ * 1. dev：cwd/.env（SUBSCRIPTION_URL / PORT / SOCKS_PORT / API_PORT）
  * 2. 正式：~/.vpn/config.yaml（首次启动自动生成空订阅版）
- * 3. 写配置：setSubscription() 供 `bun run config set-subscription <URL>`
  */
 
 import { logger } from '../core/log.ts';
@@ -91,37 +90,4 @@ export async function setSubscription(url: string): Promise<string> {
   }
   await Bun.write(path, text, { createPath: true });
   return path;
-}
-
-export interface ResolvedSource {
-  subscriptionUrl?: string;
-  clashYaml?: string;
-  httpPort?: number;
-  socksPort?: number;
-  apiPort?: number;
-  source: 'dotenv' | 'home' | 'empty';
-}
-
-/** 两级来源合并：.env 优先；.env 无订阅键时回退家目录配置 */
-export async function resolveConfigSource(): Promise<ResolvedSource> {
-  const env = await readEnvOverrides();
-  const homePath = await ensureHomeConfig();
-  const homeText = await Bun.file(homePath).text();
-  const home = extractSubscriptionUrl(homeText);
-  if (env) {
-    const url = env.subscriptionUrl ?? home.url;
-    return {
-      subscriptionUrl: url,
-      clashYaml: env.subscriptionUrl ? undefined : (home.url ? home.yaml : undefined),
-      httpPort: env.httpPort,
-      socksPort: env.socksPort,
-      apiPort: env.apiPort,
-      source: url ? 'dotenv' : 'empty',
-    };
-  }
-  return {
-    subscriptionUrl: home.url,
-    clashYaml: home.url ? home.yaml : undefined,
-    source: home.url ? 'home' : 'empty',
-  };
 }
