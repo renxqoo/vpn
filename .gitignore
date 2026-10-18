@@ -1,0 +1,8 @@
+.cache/
+.env
+dist/
+node_modules/
+*.log
+.DS_Store
+tests/fixtures/sub-real.yaml
+bun.lock

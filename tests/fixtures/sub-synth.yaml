@@ -1,0 +1,99 @@
+#---------------------------------------------------#
+## 合成测试订阅（语法形态对齐真实订阅；全部假数据）
+#---------------------------------------------------#
+port: 7890
+socks-port: 7891
+allow-lan: false
+mode: rule
+log-level: info
+external-controller: '0.0.0.0:9090'
+secret: ''
+proxies:
+  - {name: "台湾 02", type: anytls, server: "synth-台湾-1.example.net", port: 37011, password: "00000000-0000-4000-8000-000000000001", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "台湾 01", type: anytls, server: "synth-台湾-2.example.net", port: 37022, password: "00000000-0000-4000-8000-000000000002", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "台湾 05", type: anytls, server: "synth-台湾-3.example.net", port: 37033, password: "00000000-0000-4000-8000-000000000003", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "台湾 04", type: anytls, server: "synth-台湾-4.example.net", port: 37044, password: "00000000-0000-4000-8000-000000000004", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "香港 04", type: anytls, server: "synth-香港-5.example.net", port: 37055, password: "00000000-0000-4000-8000-000000000005", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "香港 03", type: anytls, server: "synth-香港-6.example.net", port: 37066, password: "00000000-0000-4000-8000-000000000006", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "香港 02", type: anytls, server: "synth-香港-7.example.net", port: 37077, password: "00000000-0000-4000-8000-000000000007", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "香港 09", type: anytls, server: "synth-香港-8.example.net", port: 37088, password: "00000000-0000-4000-8000-000000000008", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "日本 02", type: anytls, server: "synth-日本-9.example.net", port: 37099, password: "00000000-0000-4000-8000-000000000009", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "日本 07", type: anytls, server: "synth-日本-10.example.net", port: 37110, password: "00000000-0000-4000-8000-000000000010", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "日本 01", type: anytls, server: "synth-日本-11.example.net", port: 37121, password: "00000000-0000-4000-8000-000000000011", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "日本 01", type: anytls, server: "synth-日本-12.example.net", port: 37132, password: "00000000-0000-4000-8000-000000000012", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "新加坡 02", type: anytls, server: "synth-新加坡-13.example.net", port: 37143, password: "00000000-0000-4000-8000-000000000013", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "新加坡 04", type: anytls, server: "synth-新加坡-14.example.net", port: 37154, password: "00000000-0000-4000-8000-000000000014", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "新加坡 04", type: anytls, server: "synth-新加坡-15.example.net", port: 37165, password: "00000000-0000-4000-8000-000000000015", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "新加坡 09", type: anytls, server: "synth-新加坡-16.example.net", port: 37176, password: "00000000-0000-4000-8000-000000000016", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "美国 01", type: anytls, server: "synth-美国-17.example.net", port: 37187, password: "00000000-0000-4000-8000-000000000017", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "美国 09", type: anytls, server: "synth-美国-18.example.net", port: 37198, password: "00000000-0000-4000-8000-000000000018", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "美国 04", type: anytls, server: "synth-美国-19.example.net", port: 37209, password: "00000000-0000-4000-8000-000000000019", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "美国 09", type: anytls, server: "synth-美国-20.example.net", port: 37220, password: "00000000-0000-4000-8000-000000000020", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "德国 07", type: anytls, server: "synth-德国-21.example.net", port: 37231, password: "00000000-0000-4000-8000-000000000021", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "德国 04", type: anytls, server: "synth-德国-22.example.net", port: 37242, password: "00000000-0000-4000-8000-000000000022", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "德国 08", type: anytls, server: "synth-德国-23.example.net", port: 37253, password: "00000000-0000-4000-8000-000000000023", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "德国 05", type: anytls, server: "synth-德国-24.example.net", port: 37264, password: "00000000-0000-4000-8000-000000000024", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "韩国 01", type: anytls, server: "synth-韩国-25.example.net", port: 37275, password: "00000000-0000-4000-8000-000000000025", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "韩国 03", type: anytls, server: "synth-韩国-26.example.net", port: 37286, password: "00000000-0000-4000-8000-000000000026", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "韩国 07", type: anytls, server: "synth-韩国-27.example.net", port: 37297, password: "00000000-0000-4000-8000-000000000027", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "韩国 06", type: anytls, server: "synth-韩国-28.example.net", port: 37308, password: "00000000-0000-4000-8000-000000000028", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "英国 05", type: anytls, server: "synth-英国-29.example.net", port: 37319, password: "00000000-0000-4000-8000-000000000029", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "英国 03", type: anytls, server: "synth-英国-30.example.net", port: 37330, password: "00000000-0000-4000-8000-000000000030", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "英国 04", type: anytls, server: "synth-英国-31.example.net", port: 37341, password: "00000000-0000-4000-8000-000000000031", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+  - {name: "英国 06", type: anytls, server: "synth-英国-32.example.net", port: 37352, password: "00000000-0000-4000-8000-000000000032", sni: "cdn.example.net", udp: true, skip-cert-verify: true, client-fingerprint: chrome, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 5}
+proxy-groups:
+-
+  name: '🚀 节点选择'
+  type: select
+  proxies:
+    - '♻️ 自动选择'
+    - 'DIRECT'
+    - '台湾 02'
+    - '台湾 01'
+    - '台湾 05'
+    - '台湾 04'
+    - '香港 04'
+    - '香港 03'
+    - '香港 02'
+    - '香港 09'
+-
+  name: '♻️ 自动选择'
+  type: url-test
+  url: http://cp.cloudflare.com/generate204
+  interval: 300
+  tolerance: 50
+  proxies:
+    - '台湾 02'
+    - '台湾 01'
+    - '台湾 05'
+    - '台湾 04'
+    - '香港 04'
+    - '香港 03'
+    - '香港 02'
+    - '香港 09'
+rule-providers:
+  reject:
+    type: http
+    behavior: domain
+    url: 'https://example.net/synth/reject.txt'
+    path: ./ruleset/reject.yaml
+    interval: 86400
+rules:
+  - RULE-SET,reject,REJECT
+  - DOMAIN-SUFFIX,google.com,🚀 节点选择
+  - DOMAIN-SUFFIX,baidu.com,DIRECT
+  - DOMAIN-KEYWORD,synth,🚀 节点选择
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR6,fe80::/10,DIRECT,no-resolve
+  - GEOIP,LAN,DIRECT,no-resolve
+  - GEOIP,CN,DIRECT
+  - MATCH,🐟 漏网之鱼
+  - RULE-SET,reject,REJECT
+  - DOMAIN-SUFFIX,10.google.com,🚀 节点选择
+  - DOMAIN-SUFFIX,11.baidu.com,DIRECT
+  - DOMAIN-KEYWORD,synth,🚀 节点选择
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR6,fe80::/10,DIRECT,no-resolve
+  - GEOIP,LAN,DIRECT,no-resolve
+  - GEOIP,CN,DIRECT
+  - MATCH,DIRECT

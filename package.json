@@ -1,0 +1,32 @@
+{
+  "name": "bun-clash",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cli": "bun run src/cli.ts",
+    "start": "bun run src/cli.ts start",
+    "check": "bun check src tools tests",
+    "lint": "bun run tools/lint.ts",
+    "fmt": "bun run tools/fmt.ts",
+    "fmt:check": "bun run tools/fmt.ts --check",
+    "build": "bun build src/cli.ts src/start.ts --target=bun --outdir=dist --minify",
+    "test": "bun test tests",
+    "test:coverage": "bun test tests --coverage",
+    "test:real": "REAL_SMOKE=1 bun test tests/real"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.3"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.1"
+  },
+  "bin": {
+    "bun-clash": "src/cli.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "docs"
+  ]
+}
