@@ -168,7 +168,8 @@ export class App {
       },
     };
     const outboundOf = (name: string) => this.outbounds.get(name);
-    const onOpen = (info: { id: string; host: string; port: number; chain: string[]; close(): void }) => {
+    type OpenInfo = Parameters<NonNullable<ConstructorParameters<typeof HttpInbound>[0]['onOpen']>>[0];
+    const onOpen = (info: OpenInfo) => {
       this.tracker.open({
         id: info.id,
         protocol: 'http',
@@ -177,8 +178,7 @@ export class App {
         port: info.port,
         chains: info.chain,
         start: Date.now(),
-        upload: 0,
-        download: 0,
+        meter: info.meter,
         close: info.close,
       });
     };

@@ -4,6 +4,8 @@ import type { ConnectionInfo } from './types.ts';
 
 export class ConnectionTracker {
   private conns = new Map<string, ConnectionInfo>();
+  private sessionUp = 0;
+  private sessionDown = 0;
 
   open(info: ConnectionInfo): void {
     this.conns.set(info.id, info);
@@ -12,6 +14,8 @@ export class ConnectionTracker {
   close(id: string): boolean {
     const c = this.conns.get(id);
     if (!c) return false;
+    this.sessionUp += c.meter.uploaded();
+    this.sessionDown += c.meter.downloaded();
     this.conns.delete(id);
     c.close();
     return true;
@@ -24,5 +28,16 @@ export class ConnectionTracker {
 
   get(id: string): ConnectionInfo | undefined {
     return this.conns.get(id);
+  }
+
+  /** 会话累计（含已关闭连接） */
+  sessionTotals(): { upload: number; download: number } {
+    let liveUp = 0;
+    let liveDown = 0;
+    for (const c of this.conns.values()) {
+      liveUp += c.meter.uploaded();
+      liveDown += c.meter.downloaded();
+    }
+    return { upload: this.sessionUp + liveUp, download: this.sessionDown + liveDown };
   }
 }

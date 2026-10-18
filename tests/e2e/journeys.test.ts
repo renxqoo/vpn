@@ -215,6 +215,32 @@ describe('e2e: http inbound → rules → anytls → test servers', () => {
   );
 
   test(
+    'connection metering reports real byte counts',
+    async () => {
+      const t = await connectViaTunnel(app.httpPort, 'metering.test', 80);
+      const payload = 'x'.repeat(4096);
+      t.send(payload);
+      const echo = await t.recvAll(5000);
+      expect(echo).toBe(payload);
+      const res = await fetch(`http://127.0.0.1:${app.apiPortForTest}/connections`);
+      const j = await res.json() as {
+        connections: {
+          metadata: { host: string };
+          upload: number;
+          download: number;
+          upRate: number;
+          downRate: number;
+        }[];
+      };
+      const conn = j.connections.find((c) => c.metadata.host === 'metering.test');
+      expect(conn).toBeDefined();
+      expect(conn?.upload).toBeGreaterThanOrEqual(4096);
+      expect(conn?.download).toBeGreaterThanOrEqual(4096);
+    },
+    { timeout: 15000 },
+  );
+
+  test(
     'rules endpoint exposes the chain',
     async () => {
       const res = await fetch(`http://127.0.0.1:${app.apiPortForTest}/rules`);

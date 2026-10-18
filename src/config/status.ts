@@ -17,6 +17,8 @@ export interface ApiState {
   connections: number;
   upload: number;
   download: number;
+  upRate: number;
+  downRate: number;
   rules: number;
   proxies: number;
 }
@@ -35,7 +37,8 @@ async function probeApi(apiPort: number): Promise<ApiState | null> {
       proxies: Record<string, { type: string; now?: string; history?: Record<string, number>[] }>;
     };
     const conns = (await connsRes.json()) as {
-      connections: { upload: number; download: number }[];
+      totals?: { upload: number; download: number };
+      connections: { upload: number; download: number; upRate: number; downRate: number }[];
     };
     const rules = (await rulesRes.json()) as { rules: unknown[] };
     const configsRes = await fetch(`${base}/configs`, { signal: AbortSignal.timeout(1500) });
@@ -71,8 +74,10 @@ async function probeApi(apiPort: number): Promise<ApiState | null> {
       groupNow,
       delay,
       connections: conns.connections.length,
-      upload: conns.connections.reduce((n, c) => n + c.upload, 0),
-      download: conns.connections.reduce((n, c) => n + c.download, 0),
+      upload: conns.totals?.upload ?? conns.connections.reduce((n, c) => n + c.upload, 0),
+      download: conns.totals?.download ?? conns.connections.reduce((n, c) => n + c.download, 0),
+      upRate: conns.connections.reduce((n, c) => n + c.upRate, 0),
+      downRate: conns.connections.reduce((n, c) => n + c.downRate, 0),
       rules: rules.rules.length,
       proxies: anytlsCount,
     };
@@ -129,7 +134,10 @@ export async function runStatusCommand(apiPortArg?: number): Promise<void> {
   // 运行统计段
   if (api) {
     p.log.message(
-      `  连接数  ${api.connections} 活跃 · ↑${fmtBytes(api.upload)} ↓${fmtBytes(api.download)}（当前连接累计）`,
+      `  实时网速  ↑${fmtBytes(api.upRate)}/s ↓${fmtBytes(api.downRate)}/s`,
+    );
+    p.log.message(
+      `  会话流量  ${api.connections} 活跃连接 · 累计 ↑${fmtBytes(api.upload)} ↓${fmtBytes(api.download)}`,
     );
     p.log.message(`  规则数  ${api.rules} · 节点 ${api.proxies} 个`);
   }

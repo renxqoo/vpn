@@ -6,6 +6,7 @@
 import { logger } from '../core/log.ts';
 import { isIpv4, type SocksAddr } from '../core/socksaddr.ts';
 import type { Conn, Outbound, Router } from '../core/types.ts';
+import { MeteredPipe } from '../core/meter.ts';
 
 const log = logger('inbound:http');
 const HANDSHAKE_TIMEOUT = 30_000;
@@ -20,7 +21,7 @@ function withIdleTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 
 interface ClientState {
   buf: Uint8Array;
-  tunnel: { upstream: Conn } | null;
+  tunnel: { upstream: Conn & MeteredPipe } | null;
   connecting: boolean;
   connId: string;
 }
@@ -29,7 +30,14 @@ export interface HttpInboundOptions {
   port: number;
   router: Router;
   outboundOf(name: string): Outbound | undefined;
-  onOpen?(info: { id: string; host: string; port: number; chain: string[]; close(): void }): void;
+  onOpen?(info: {
+    id: string;
+    host: string;
+    port: number;
+    chain: string[];
+    meter: { uploaded(): number; downloaded(): number; upRate(): number; downRate(): number };
+    close(): void;
+  }): void;
   onClose?(id: string): void;
 }
 
@@ -211,19 +219,29 @@ export class HttpInbound {
       }
       const addr: SocksAddr = { type: 'fqdn', host, port };
       void addr;
+      const metered = new MeteredPipe(upstream);
+      onOpen?.({
+        id: st.connId,
+        host,
+        port,
+        chain: [picked.outbound.name],
+        meter: metered,
+        close: () => socket.end(),
+      });
       const payloadBytes = new TextEncoder().encode(rewritten);
       const body = new Uint8Array(payloadBytes.length + rest.length);
       body.set(payloadBytes);
       body.set(rest, payloadBytes.length);
       try {
-        await upstream.write(body);
-        // V1 单请求语义：转发响应直到上游 EOF 或空闲超时（上游 keep-alive 不关时防挂死）
+        await metered.write(body);
+        // 单请求语义：转发响应直到上游 EOF 或空闲超时（上游 keep-alive 不关时防挂死）
         for (;;) {
-          const chunk = await withIdleTimeout(upstream.read(65536), 30000);
+          const chunk = await withIdleTimeout(metered.read(65536), 30000);
           socket.write(chunk);
         }
       } catch (_e) {
         socket.end();
+        onClose?.(st.connId);
       }
     }
 
@@ -252,7 +270,14 @@ export class HttpInbound {
       }
       const chain = [picked.outbound.name];
       const id = st.connId;
-      onOpen?.({ id, host, port, chain, close: () => socket.end() });
+      let tunnelMeter: MeteredPipe | null = null;
+      const holder = {
+        uploaded: () => tunnelMeter?.uploaded() ?? 0,
+        downloaded: () => tunnelMeter?.downloaded() ?? 0,
+        upRate: () => tunnelMeter?.upRate() ?? 0,
+        downRate: () => tunnelMeter?.downRate() ?? 0,
+      };
+      onOpen?.({ id, host, port, chain, meter: holder, close: () => socket.end() });
       clearHandshakeTimer(socket);
       socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
       st.connecting = false;
@@ -261,7 +286,14 @@ export class HttpInbound {
       const initialAll = new Uint8Array(early.length + initial.length);
       initialAll.set(early);
       initialAll.set(initial, early.length);
-      st.tunnel = { upstream };
+      const metered = new MeteredPipe(upstream);
+      tunnelMeter = metered;
+      st.tunnel = {
+        upstream: Object.assign(metered, {
+          closed: upstream.closed,
+          close: () => upstream.close(),
+        }) as Conn & MeteredPipe,
+      };
       initial = initialAll;
       if (initial.length > 0) {
         try {
@@ -271,11 +303,11 @@ export class HttpInbound {
           return;
         }
       }
-      // 上游 → 客户端
+      // 上游 → 客户端（经 meter 计量）
       void (async () => {
         try {
           for (;;) {
-            const chunk = await upstream.read(65536);
+            const chunk = await st.tunnel!.upstream.read(65536);
             socket.write(chunk);
           }
         } catch (_e) {

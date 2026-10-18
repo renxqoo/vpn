@@ -225,7 +225,9 @@ export class RestApi {
         return;
       }
       if (method === 'GET' && path === '/connections') {
+        const totals = deps.tracker.sessionTotals();
         json(socket, 200, {
+          totals: { upload: totals.upload, download: totals.download },
           connections: deps.tracker.snapshot().map((c) => ({
             id: c.id,
             metadata: {
@@ -233,8 +235,10 @@ export class RestApi {
               destinationIP: c.destinationIP,
               destinationPort: c.port,
             },
-            upload: c.upload,
-            download: c.download,
+            upload: c.meter.uploaded(),
+            download: c.meter.downloaded(),
+            upRate: c.meter.upRate(),
+            downRate: c.meter.downRate(),
             start: c.start,
             chains: c.chains,
           })),

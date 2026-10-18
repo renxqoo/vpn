@@ -42,7 +42,6 @@ export interface ConnectionInfo {
   port: number;
   chains: string[];
   start: number;
-  upload: number;
-  download: number;
+  meter: { uploaded(): number; downloaded(): number; upRate(): number; downRate(): number };
   close(): void;
 }

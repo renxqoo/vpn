@@ -5,6 +5,7 @@
 import { logger } from '../core/log.ts';
 import { isIpv4, type SocksAddr } from '../core/socksaddr.ts';
 import type { Conn, Outbound, Router } from '../core/types.ts';
+import { MeteredPipe } from '../core/meter.ts';
 
 const log = logger('inbound:socks5');
 const MAX_GREETING = 257 + 8;
@@ -14,7 +15,7 @@ const MAX_EARLY = 256 * 1024;
 interface ClientState {
   phase: 'greeting' | 'request' | 'connecting' | 'tunnel';
   buf: Uint8Array;
-  upstream: Conn | null;
+  upstream: (Conn & { uploaded?(): number; downloaded?(): number; upRate?(): number; downRate?(): number }) | null;
   connId: string;
 }
 
@@ -22,7 +23,14 @@ export interface Socks5InboundOptions {
   port: number;
   router: Router;
   outboundOf(name: string): Outbound | undefined;
-  onOpen?(info: { id: string; host: string; port: number; chain: string[]; close(): void }): void;
+  onOpen?(info: {
+    id: string;
+    host: string;
+    port: number;
+    chain: string[];
+    meter: { uploaded(): number; downloaded(): number; upRate(): number; downRate(): number };
+    close(): void;
+  }): void;
   onClose?(id: string): void;
 }
 
@@ -170,7 +178,12 @@ export class Socks5Inbound {
         return;
       }
       clearHandshakeTimer(socket);
-      st.upstream = upstream;
+      const metered = new MeteredPipe(upstream);
+      const meteredConn = Object.assign(metered, {
+        closed: upstream.closed,
+        close: () => upstream.close(),
+      });
+      st.upstream = meteredConn;
       // BND.ADDR 0.0.0.0:0
       socket.write(new Uint8Array([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]));
       if (st.buf.length > 0) {
@@ -179,12 +192,19 @@ export class Socks5Inbound {
         upstream.write(early).catch(() => socket.end());
       }
       st.phase = 'tunnel';
-      onOpen?.({ id: st.connId, host, port: addr.port, chain: [outbound.name], close: () => socket.end() });
-      // 上游 → 客户端
+      onOpen?.({
+        id: st.connId,
+        host,
+        port: addr.port,
+        chain: [outbound.name],
+        meter: meteredConn,
+        close: () => socket.end(),
+      });
+      // 上游 → 客户端（经 meter 计量）
       void (async () => {
         try {
           for (;;) {
-            const chunk = await upstream.read(65536);
+            const chunk = await st.upstream!.read(65536);
             socket.write(chunk);
           }
         } catch (_e) {
