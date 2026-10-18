@@ -22,7 +22,7 @@ bun add -g bun-clash            # 或 npm i -g bun-clash
 
 ```bash
 # 1. 写入订阅（首次）——写到 ~/.vpn/config.yaml
-bun run config set-subscription 'https://example.com/link/xxx?clash=1'
+bun run cli config set-subscription 'https://example.com/link/xxx?clash=1'
 
 # 2. 启动
 bun run start                          # 读 ~/.vpn/config.yaml（正式配置）
@@ -64,7 +64,7 @@ curl -x http://127.0.0.1:7890 http://cp.cloudflare.com/generate204 -o /dev/null 
 两层来源（优先级从高到低）：
 
 1. **`.env`**（项目根，dev 调试）：`SUBSCRIPTION_URL` + 可选 `PORT/SOCKS_PORT/API_PORT`
-2. **`~/.vpn/config.yaml`**（正式）：`subscription-url: '...'`（`bun run config set-subscription` 写入）
+2. **`~/.vpn/config.yaml`**（正式）：`subscription-url: '...'`（`bun run cli config set-subscription` 写入）
 
 订阅即 Clash YAML——端口、节点（anytls）、策略组（select/url-test/fallback）、规则
 （DOMAIN/DOMAIN-SUFFIX/DOMAIN-KEYWORD/IP-CIDR/IP-CIDR6/GEOIP/RULE-SET/MATCH）、
