@@ -6,6 +6,7 @@
 
 import { runStart } from './start.ts';
 import { runConfigCommand } from './config-cmd.ts';
+import { runDaemonStart } from './system/daemon.ts';
 
 interface Command {
   name: string;
@@ -24,8 +25,14 @@ function findApiPort(args: string[]): number | undefined {
 const commands: Command[] = [
   {
     name: 'start',
-    summary: '启动内核并开启系统代理（macOS；--no-system-proxy 跳过）',
+    summary: '启动内核并开启系统代理（--daemon 后台；--no-system-proxy 跳过）',
     async run(args) {
+      if (args.includes('--daemon')) {
+        // 剥离 --daemon 后透传给子进程；已在运行检测在子进程 start 内完成（exit 1）
+        const rest = args.filter((a) => a !== '--daemon');
+        await runDaemonStart({ entry: import.meta.path, args: rest });
+        return;
+      }
       await runStart(args);
     },
   },
@@ -117,6 +124,7 @@ ${commands.map((c) => `  ${c.name.padEnd(18)}${c.summary}`).join('\n')}
 
 示例：
   bun-clash start                     启动（订阅来自 ~/.vpn/config.yaml 或项目 .env）
+  bun-clash start --daemon            后台守护启动（日志 ~/.vpn/logs/kernel.log）
   bun-clash stop                      恢复系统代理并停止内核
   bun-clash proxy off                 仅关闭系统代理
   bun-clash start --no-system-proxy    仅启动内核

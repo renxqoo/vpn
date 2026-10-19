@@ -8,7 +8,8 @@ import * as p from '@clack/prompts';
 import { collectFileInputs, mergeSource } from './settings.ts';
 import { readSelectedNode } from './nodes.ts';
 import { readMode } from './mode.ts';
-import { resolveController } from './controller.ts';
+import { resolveController, readRunningController } from './controller.ts';
+import { KERNEL_LOG_PATH } from './paths.ts';
 import { formatNodeHealth, healthFromProxies, nodeHealthLines, type NodeHealthMap } from './node-health.ts';
 
 export interface ApiState {
@@ -100,13 +101,16 @@ export async function runStatusCommand(apiPortArg?: number): Promise<void> {
   const selected = await readSelectedNode();
   const modeInConfig = await readMode();
   const { apiPort, secret } = await resolveController(src.apiPort ?? 9090, src.secret ?? '', apiPortArg);
+  const running = await readRunningController();
   const api = await probeApi(apiPort, secret);
 
   p.intro('bun-clash 状态');
 
   // 运行状态行
   if (api) {
-    p.log.success(`内核运行中（API 127.0.0.1:${apiPort}）`);
+    const how = running?.daemon ? '后台守护' : '前台';
+    p.log.success(`内核运行中（${how}，PID ${running?.pid ?? '?'}，API 127.0.0.1:${apiPort}）`);
+    if (running?.daemon) p.log.message(`  日志路径  ${KERNEL_LOG_PATH()}`);
   } else {
     p.log.warn(`内核未运行（API 127.0.0.1:${apiPort} 不可达）——以下为配置态`);
   }

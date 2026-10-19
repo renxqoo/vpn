@@ -10,6 +10,9 @@ import { writeSelectedNode } from './config/nodes.ts';
 
 const log = logger('start');
 
+/** daemon 握手：父进程注入的环境变量（docs/daemon.md 契约）；默认前台 */
+const isDaemon = () => process.env.BUN_CLASH_DAEMON === '1';
+
 interface StartArgs {
   port?: number;
   socksPort?: number;
@@ -116,14 +119,14 @@ export async function runStart(argv: string[]): Promise<void> {
           log.info(`系统代理已启用：HTTP/HTTPS 127.0.0.1:${app.httpPort}，SOCKS ${app.socksPortForTest}`);
         } else log.warn('当前平台未实现系统代理自动接管，请手动设置 HTTP/SOCKS 端口');
       }
-      await writeController(app.apiPortForTest, runtime.config.apiSecret);
+      await writeController(app.apiPortForTest, runtime.config.apiSecret, isDaemon());
       if (initial.settings.selectedNode && !runtime.settings.selectedNode && !args.direct) {
         await writeSelectedNode(null);
       }
     } catch (e) {
       if (systemProxy.ownsRecoveryState()) {
         try { await systemProxy.disable(process.pid); } catch (_restore) {
-          await writeController(app.apiPortForTest, runtime.config.apiSecret);
+          await writeController(app.apiPortForTest, runtime.config.apiSecret, isDaemon());
           log.error('系统代理恢复失败，已保留内核与恢复快照；修复权限后运行 proxy off / stop');
           return;
         }
@@ -136,6 +139,11 @@ export async function runStart(argv: string[]): Promise<void> {
   await startup;
   const modeLabel = { rule: '规则', global: '全局', direct: '直连' }[app.currentMode()] ?? app.currentMode();
   log.info(`配置来源: ${runtime.sourceLabel}；模式: ${modeLabel}`);
+  // 就绪提示不受 log-level 影响（silent 下启动零反馈像挂住）；前台交互必需
+  console.log(
+    `▶ 就绪：HTTP 127.0.0.1:${app.httpPort} · SOCKS 127.0.0.1:${app.socksPortForTest} · API 127.0.0.1:${app.apiPortForTest}` +
+    `（Ctrl-C 停止${isDaemon() ? '；后台守护模式' : ''}）`,
+  );
 
   process.on('unhandledRejection', (reason: unknown) => {
     log.error(`unhandled rejection: ${String(reason).slice(0, 200)}`);

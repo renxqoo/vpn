@@ -69,7 +69,8 @@ api-port: 1234
     const status = await command('status');
     expect(list.code).toBe(0);
     expect(status.code).toBe(0);
-    expect(status.text).toContain(`内核运行中（API 127.0.0.1:${apiPort}）`);
+    expect(status.text).toContain(`内核运行中（前台，PID `);
+    expect(status.text).toContain(`API 127.0.0.1:${apiPort}）`);
     for (const name of names) expect(status.text).toContain(name);
     expect(status.text).toContain('不可用/超时');
     expect(status.text).toContain('节点 3 个');

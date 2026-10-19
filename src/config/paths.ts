@@ -39,6 +39,9 @@ export const HOME_CONFIG_DIR = (): string => join(homeDir(), '.vpn');
 /** 订阅快照 / 规则集 / mmdb 的缓存目录（随家目录，不污染启动 cwd） */
 export const cacheDirectory = (): string => join(HOME_CONFIG_DIR(), 'cache');
 export const HOME_CONFIG_PATH = (): string => join(HOME_CONFIG_DIR(), 'config.yaml');
+/** daemon 日志目录与内核日志文件（单一真相：daemon 写、status 展示） */
+export const LOG_DIR = (): string => join(HOME_CONFIG_DIR(), 'logs');
+export const KERNEL_LOG_PATH = (): string => join(LOG_DIR(), 'kernel.log');
 export const DOTENV_PATH = (): string => join(process.cwd(), '.env');
 
 export interface EnvOverrides {

@@ -26,6 +26,7 @@ bun run cli config set-subscription 'https://example.com/link/xxx?clash=1'
 
 # 2. 启动
 bun run start                          # 启动内核并自动配置/开启 macOS 系统代理
+bun run start --daemon                # 后台守护启动（日志 ~/.vpn/logs/kernel.log）
 bun run start --direct                 # 不用订阅，代理内核全部直连
 bun run start --no-system-proxy        # 仅启动内核，手动配置系统代理
 bun run stop                           # 恢复原系统代理并停止内核
