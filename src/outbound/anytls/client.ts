@@ -108,7 +108,8 @@ export class AnytlsClient {
         error(_s, err) {
           session?.die(String(err));
         },
-        open() {
+        open(sock) {
+          socketPlaceholder = sock;
           opened = true;
           openResolve?.();
         },

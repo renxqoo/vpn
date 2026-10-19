@@ -22,8 +22,14 @@ class DirectConn implements Conn {
     let openedResolve: (() => void) | null = null;
     let opened = false;
     const openedPromise = new Promise<void>((r) => (openedResolve = r));
+    let lateSocket: Bun.Socket<undefined> | null = null;
     let dialTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
       rejectDial(new Error('connect timeout'));
+      try {
+        lateSocket?.end();
+      } catch (_e) {
+        /* noop */
+      }
     }, 15000);
     let rejectDial: (e: Error) => void = () => {};
     const dialFailed = new Promise<never>((_, rej) => (rejectDial = rej));
@@ -58,7 +64,8 @@ class DirectConn implements Conn {
           for (const w of conn.waiters.splice(0)) w(false);
           void err;
         },
-        open() {
+        open(sock: Bun.Socket<undefined>) {
+          lateSocket = sock;
           opened = true;
           openedResolve?.();
         },

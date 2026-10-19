@@ -12,9 +12,19 @@ function lengthOrigin(): Bun.TCPSocketListener<undefined> {
       data(socket: Bun.Socket<undefined>, data: Buffer) {
         const text = new TextDecoder().decode(data);
         if (!text.includes('\r\n\r\n')) return;
-        const body = `origin-payload-${Date.now() % 100000}`;
-        socket.write(`HTTP/1.1 200 OK\r\nContent-Length: ${body.length}\r\nConnection: close\r\n\r\n${body}`);
-        socket.end();
+        const body = new TextEncoder().encode(`origin-payload-${Date.now() % 100000}-${'x'.repeat(1024)}`);
+        const head = `HTTP/1.1 200 OK\r\nContent-Length: ${body.length}\r\n\r\n`;
+        socket.write(head);
+        let sent = 0;
+        const timer = setInterval(() => {
+          const slice = body.subarray(sent, Math.min(sent + 200, body.length));
+          if (slice.length === 0) {
+            clearInterval(timer);
+            return;
+          }
+          socket.write(slice);
+          sent += slice.length;
+        }, 20);
       },
       open() {},
       close() {},
@@ -88,7 +98,7 @@ describe('absolute-form forwarding lifecycle', () => {
         await new Promise((r) => setTimeout(r, 100));
         sock.end();
       }
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 1500));
       expect(tracker.snapshot().length).toBe(0);
       expect(closedCount).toBeGreaterThanOrEqual(10);
     },

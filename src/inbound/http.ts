@@ -279,7 +279,7 @@ export class HttpInbound {
             const cl = /content-length:\s*(\d+)/i.exec(head);
             if (cl) {
               const total = Number(cl[1]);
-              const bodySeen = headerBuf.length - (idx + 4);
+              const bodySeen = headerBuf.length - idx;
               remaining = Math.max(total - bodySeen, 0);
               if (remaining === 0) return;
             }
