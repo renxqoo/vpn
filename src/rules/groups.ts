@@ -75,7 +75,7 @@ export class AutoGroup implements Outbound {
     this.url = cfg.url ?? 'http://cp.cloudflare.com/generate204';
     this.intervalMs = (cfg.interval ?? 300) * 1000;
     this.toleranceMs = cfg.tolerance ?? 50;
-    this.currentName = this.order[0] ?? '';
+    this.currentName = this.order.find((m) => members.has(m)) ?? '';
   }
 
   current(): string {
@@ -152,7 +152,9 @@ export class AutoGroup implements Outbound {
   }
 
   connect(target: SocksAddr): Promise<Conn> {
-    const picked = this.members.get(this.currentName) ?? this.members.get(this.order[0] as string);
+    const picked =
+      this.members.get(this.currentName) ??
+      this.members.get(this.order.find((m) => this.members.has(m)) ?? '');
     if (!picked) return Promise.reject(new Error(`group '${this.name}' empty`));
     return picked.connect(target);
   }
