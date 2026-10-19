@@ -31,7 +31,7 @@ for (const g of GLOBS) {
     files++;
     const full = ROOT + '/' + path;
     const text = await Bun.file(full).text();
-    const lines = text.split('\n');
+    const lines = text.split('\n').map((l) => l.replace(/\r$/, ''));
     let inBlockComment = false;
     lines.forEach((raw, i) => {
       const line = stripStrings(raw);
