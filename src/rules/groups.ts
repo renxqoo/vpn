@@ -169,7 +169,8 @@ export function buildGroup(
   members: Map<string, Outbound>,
 ): SelectGroup | AutoGroup {
   if (cfg.type === 'select') {
-    return new SelectGroup(cfg.name, members, cfg.proxies[0] ?? '');
+    const initial = cfg.proxies.find((m) => members.has(m)) ?? '';
+    return new SelectGroup(cfg.name, members, initial);
   }
   const g = new AutoGroup(cfg, members);
   return g;

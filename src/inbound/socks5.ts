@@ -196,7 +196,7 @@ export class Socks5Inbound {
       if (st.buf.length > 0) {
         const early = st.buf;
         st.buf = new Uint8Array(0);
-        upstream.write(early).catch(() => socket.end());
+        meteredConn.write(early).catch(() => socket.end());
       }
       st.phase = 'tunnel';
       onOpen?.({

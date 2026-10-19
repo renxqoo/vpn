@@ -84,23 +84,38 @@ export class App {
 
     // 组（后声明的组可引用先声明的组与节点；同名组幂等）
     const groupOutbounds = new Map<string, Outbound>();
+    const unresolvable = new Set<string>(
+      cfg.proxies.filter((p) => p.kind === 'unknown').map((p) => p.name),
+    );
     for (let pass = 0; pass < cfg.groups.length; pass++) {
+      let progressed = false;
       for (const g of cfg.groups) {
         if (groupOutbounds.has(g.name)) continue;
         const members = new Map<string, Outbound>();
+        const pending: string[] = [];
         for (const m of g.proxies) {
           const o = this.outbounds.get(m) ?? groupOutbounds.get(m);
           if (o) members.set(m, o);
+          else if (!unresolvable.has(m) && cfg.groups.some((x) => x.name === m)) pending.push(m);
         }
-        if (members.size === 0) continue; // 依赖尚不可用（前向组引用），下一轮再试
+        const pendingStillPossible = pending.some(
+          (m) => !groupOutbounds.has(m) && cfg.groups.some((x) => x.name === m && !groupOutbounds.has(x.name)),
+        );
+        if (pending.length > 0 && pendingStillPossible && pass < cfg.groups.length - 1) {
+          continue; // 有成员引用了尚未构建的组：等下一轮（部分成员组先不定形）
+        }
         const missing = g.proxies.filter((m) => !members.has(m));
-        if (missing.length > 0) {
-          log.warn(`group '${g.name}': ${missing.length} member(s) unavailable, skipped: ${missing.join(', ')}`);
+        const skipped = missing.filter((m) => unresolvable.has(m));
+        if (skipped.length > 0) {
+          log.warn(`group '${g.name}': unavailable members skipped: ${skipped.join(', ')}`);
         }
+        if (members.size === 0) continue;
         const built = buildGroup(g, members);
         groupOutbounds.set(g.name, built);
         this.outbounds.set(g.name, built);
+        progressed = true;
       }
+      if (!progressed) break;
     }
     for (const g of cfg.groups) {
       if (!groupOutbounds.has(g.name)) {
