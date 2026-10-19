@@ -1,0 +1,184 @@
+{
+  "environment": "macOS loopback, Bun 1.4.3; 3 alternating process pairs, each 5 x 32 MiB echo rounds per path",
+  "measurement": "Single-direction payload throughput in a TLS echo round trip; HTTP proxy includes full CONNECT path",
+  "summary": {
+    "before": {
+      "echoMiBpsMedian": 771.287,
+      "httpProxyEchoMiBpsMedian": 568.562,
+      "reloadAndConnectMsP50": 0.629,
+      "reloadAndConnectMsP95": 0.732,
+      "reusedClients": 0,
+      "reloads": 240
+    },
+    "after": {
+      "echoMiBpsMedian": 846.088,
+      "httpProxyEchoMiBpsMedian": 620.254,
+      "reloadAndConnectMsP50": 0.039,
+      "reloadAndConnectMsP95": 0.066,
+      "reusedClients": 240,
+      "reloads": 240
+    }
+  },
+  "runs": {
+    "before": [
+      {
+        "bun": "1.4.3",
+        "blockBytes": 65536,
+        "transferMiBPerRound": 32,
+        "rounds": 5,
+        "echoMiBpsMedian": 771.287,
+        "echoMiBpsRounds": [
+          577.29,
+          752.05,
+          782.5,
+          771.29,
+          773.33
+        ],
+        "httpProxyEchoMiBpsMedian": 568.562,
+        "httpProxyEchoMiBpsRounds": [
+          557.2,
+          560.02,
+          578.21,
+          569.29,
+          568.56
+        ],
+        "reloadAndConnectMsP50": 0.625,
+        "reloadAndConnectMsP95": 0.707,
+        "reusedClients": 0,
+        "reloads": 80
+      },
+      {
+        "bun": "1.4.3",
+        "blockBytes": 65536,
+        "transferMiBPerRound": 32,
+        "rounds": 5,
+        "echoMiBpsMedian": 775.15,
+        "echoMiBpsRounds": [
+          740.49,
+          756.84,
+          788.06,
+          775.15,
+          784.23
+        ],
+        "httpProxyEchoMiBpsMedian": 590.892,
+        "httpProxyEchoMiBpsRounds": [
+          564.16,
+          594.34,
+          590.89,
+          608.3,
+          579.16
+        ],
+        "reloadAndConnectMsP50": 0.629,
+        "reloadAndConnectMsP95": 0.732,
+        "reusedClients": 0,
+        "reloads": 80
+      },
+      {
+        "bun": "1.4.3",
+        "blockBytes": 65536,
+        "transferMiBPerRound": 32,
+        "rounds": 5,
+        "echoMiBpsMedian": 770.712,
+        "echoMiBpsRounds": [
+          724.33,
+          761.02,
+          780.98,
+          770.71,
+          775.62
+        ],
+        "httpProxyEchoMiBpsMedian": 566.686,
+        "httpProxyEchoMiBpsRounds": [
+          566.69,
+          557.69,
+          567.7,
+          598.45,
+          565.74
+        ],
+        "reloadAndConnectMsP50": 0.67,
+        "reloadAndConnectMsP95": 0.733,
+        "reusedClients": 0,
+        "reloads": 80
+      }
+    ],
+    "after": [
+      {
+        "bun": "1.4.3",
+        "blockBytes": 65536,
+        "transferMiBPerRound": 32,
+        "rounds": 5,
+        "echoMiBpsMedian": 846.088,
+        "echoMiBpsRounds": [
+          784.83,
+          840.43,
+          846.09,
+          846.82,
+          868.77
+        ],
+        "httpProxyEchoMiBpsMedian": 626.213,
+        "httpProxyEchoMiBpsRounds": [
+          616.46,
+          626.99,
+          633.88,
+          626.21,
+          607.8
+        ],
+        "reloadAndConnectMsP50": 0.041,
+        "reloadAndConnectMsP95": 0.067,
+        "reusedClients": 80,
+        "reloads": 80
+      },
+      {
+        "bun": "1.4.3",
+        "blockBytes": 65536,
+        "transferMiBPerRound": 32,
+        "rounds": 5,
+        "echoMiBpsMedian": 789.8,
+        "echoMiBpsRounds": [
+          797.68,
+          843.83,
+          775.83,
+          749.69,
+          789.8
+        ],
+        "httpProxyEchoMiBpsMedian": 620.254,
+        "httpProxyEchoMiBpsRounds": [
+          580.95,
+          620.25,
+          625.58,
+          620.87,
+          609.32
+        ],
+        "reloadAndConnectMsP50": 0.038,
+        "reloadAndConnectMsP95": 0.06,
+        "reusedClients": 80,
+        "reloads": 80
+      },
+      {
+        "bun": "1.4.3",
+        "blockBytes": 65536,
+        "transferMiBPerRound": 32,
+        "rounds": 5,
+        "echoMiBpsMedian": 853.97,
+        "echoMiBpsRounds": [
+          784.39,
+          853.97,
+          863.58,
+          839.97,
+          859.26
+        ],
+        "httpProxyEchoMiBpsMedian": 619.956,
+        "httpProxyEchoMiBpsRounds": [
+          605.77,
+          623.9,
+          628.43,
+          619.96,
+          601.15
+        ],
+        "reloadAndConnectMsP50": 0.039,
+        "reloadAndConnectMsP95": 0.066,
+        "reusedClients": 80,
+        "reloads": 80
+      }
+    ]
+  }
+}

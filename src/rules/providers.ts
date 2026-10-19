@@ -35,9 +35,17 @@ export class RuleProviders {
   private timer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
 
-  constructor(configs: Map<string, RuleProviderConfig>, store: ProviderStore) {
+  constructor(configs: Map<string, RuleProviderConfig>, store: ProviderStore, previous?: RuleProviders) {
     this.configs = configs;
     this.store = store;
+    if (previous) {
+      for (const [name, config] of configs) {
+        const loaded = previous.runtime.get(name);
+        if (loaded && JSON.stringify(config) === JSON.stringify(previous.configs.get(name))) {
+          this.runtime.set(name, loaded);
+        }
+      }
+    }
   }
 
   /** 刷新监听：引擎注册回调，每轮刷新完成后收到实时 runtime Map（同一实例，后续更新直接可见） */
@@ -54,13 +62,24 @@ export class RuleProviders {
 
   /** 启动时加载全部：并行拉取（每个 15s 超时；缓存可用；全失败空集 + 警告，不阻塞启动） */
   async loadAll(): Promise<void> {
-    await Promise.all([...this.configs.entries()].map(([name, cfg]) => this.loadOne(name, cfg)));
+    await Promise.all([...this.configs.entries()].map(([name, cfg]) => {
+      const loaded = this.runtime.get(name);
+      if (loaded && this.store.now() - loaded.loadedAt < cfg.interval * 1000) return Promise.resolve();
+      return this.loadOne(name, cfg);
+    }));
     const intervals = [...this.configs.values()].map((c) => c.interval);
     const minInterval = Math.min(...intervals.filter((n) => Number.isFinite(n)), 86400);
     if (!this.stopped && intervals.length > 0) {
-      this.timer = setInterval(() => {
+      const now = this.store.now();
+      const dueIn = Math.min(minInterval * 1000, ...[...this.configs].map(([name, cfg]) => {
+        const loaded = this.runtime.get(name);
+        return loaded ? loaded.loadedAt + cfg.interval * 1000 - now : 0;
+      }));
+      // 继承项保留原到期时间；第一轮之后继续既有最短 interval 的检查频率。
+      this.timer = setTimeout(() => {
         void this.refreshDue();
-      }, minInterval * 1000);
+        if (!this.stopped) this.timer = setInterval(() => { void this.refreshDue(); }, minInterval * 1000);
+      }, Math.max(1, dueIn));
     }
   }
 

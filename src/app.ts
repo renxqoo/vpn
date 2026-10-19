@@ -4,17 +4,18 @@
 
 import { join } from 'node:path';
 import { logger } from './core/log.ts';
-import { parseClashConfig, type ClashConfig } from './config/clash.ts';
+import { startListener } from './core/listener.ts';
+import { parseClashConfig, type ClashConfig, type AnytlsProxyConfig } from './config/clash.ts';
 import { CLASH_USER_AGENT, loadSubscription } from './config/subscription.ts';
 import { DirectOutbound } from './outbound/direct.ts';
 import { AnytlsOutbound } from './outbound/anytls/index.ts';
 import { AnytlsClient } from './outbound/anytls/client.ts';
 import { RuleEngine } from './rules/index.ts';
 import { RuleProviders } from './rules/providers.ts';
-import { loadGeoip } from './rules/geoip.ts';
+import { loadGeoip, type MmdbReader } from './rules/geoip.ts';
 import { readTextBounded } from './core/fetchbounded.ts';
 import { buildGroup } from './rules/groups.ts';
-import { SelectGroup } from './rules/groups.ts';
+import { AutoGroup, SelectGroup } from './rules/groups.ts';
 import { HttpInbound } from './inbound/http.ts';
 import { Socks5Inbound } from './inbound/socks5.ts';
 import { RestApi } from './api/server.ts';
@@ -23,12 +24,19 @@ import { CLIENT_NAME } from './core/version.ts';
 import type { Outbound } from './core/types.ts';
 
 const log = logger('app');
+const proxyKey = (p: AnytlsProxyConfig) => JSON.stringify([
+  p.server, p.port, p.password, p.sni, p.skipCertVerify, p.udp,
+  p.idleSessionCheckIntervalSec, p.idleSessionTimeoutSec, p.minIdleSession,
+]);
 
 export interface AppOptions {
   config: ClashConfig;
   cacheDir: string;
   overrides?: { httpPort?: number; socksPort?: number; apiPort?: number };
   reloadConfig?: () => Promise<void>;
+  disableSystemProxy?: () => Promise<void>;
+  prepareShutdown?: () => Promise<void>;
+  shutdown?: () => Promise<void>;
 }
 
 export class App {
@@ -37,6 +45,8 @@ export class App {
   private outbounds = new Map<string, Outbound>();
   private providers: RuleProviders | null = null;
   private engine: RuleEngine | null = null;
+  private geoip: MmdbReader | null = null;
+  private retired = new Set<AnytlsOutbound>();
   tracker = new ConnectionTracker();
   private opts: AppOptions;
   private runtimeMode: ClashConfig['mode'];
@@ -61,15 +71,22 @@ export class App {
     return true;
   }
 
-  private async prepareRouting(): Promise<void> {
+  private async prepareRouting(previous?: App): Promise<void> {
     const cfg = this.opts.config;
     const cache = this.opts.cacheDir;
 
     // 出站
-    const direct = new DirectOutbound('DIRECT');
+    const direct = previous?.outbounds.get('DIRECT') ?? new DirectOutbound('DIRECT');
     this.outbounds.set('DIRECT', direct);
+    const previousProxies = new Map(previous?.opts.config.proxies.map((p) => [p.name, p]));
     for (const p of cfg.proxies) {
       if (p.kind !== 'anytls') continue;
+      const before = previousProxies.get(p.name);
+      const existing = previous?.outbounds.get(p.name);
+      if (existing instanceof AnytlsOutbound && before?.kind === 'anytls' && proxyKey(p) === proxyKey(before)) {
+        this.outbounds.set(p.name, existing);
+        continue;
+      }
       const client = new AnytlsClient(p.name, {
         host: p.server,
         port: p.port,
@@ -112,7 +129,12 @@ export class App {
           log.warn(`group '${g.name}': unavailable members skipped: ${skipped.join(', ')}`);
         }
         if (members.size === 0) continue;
-        const built = buildGroup(g, members);
+        const existing = previous?.outbounds.get(g.name);
+        const oldConfig = previous?.opts.config.groups.find((item) => item.name === g.name);
+        const reuse = (existing instanceof AutoGroup || existing instanceof SelectGroup) &&
+          JSON.stringify(oldConfig) === JSON.stringify(g) &&
+          existing.hasSameMembers(members);
+        const built = reuse ? existing : buildGroup(g, members);
         groupOutbounds.set(g.name, built);
         this.outbounds.set(g.name, built);
         progressed = true;
@@ -133,36 +155,45 @@ export class App {
     }
 
     // 规则提供者 + geoip + 引擎
-    this.providers = new RuleProviders(cfg.ruleProviders, {
-      cacheDir: () => cache,
-      fetch: async (u: string) => {
-        const r = await fetch(u, {
-          headers: { 'user-agent': CLASH_USER_AGENT },
-          signal: AbortSignal.timeout(15_000),
-        });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return readTextBounded(r);
-      },
-      readFile: async (p: string) => {
-        const f = Bun.file(p);
-        return (await f.exists()) ? f.text() : null;
-      },
-      now: () => Date.now(),
-    });
-    // providers 后台加载（不阻塞启动；引擎持有 live Map，每轮刷新后回调确认）
-    this.providers.subscribe(() => {
-      if (this.providers !== null && this.providers.liveView().size > 0) {
-        log.info(`rule providers available: ${this.providers.liveView().size}`);
-      }
-    });
-    void this.providers.loadAll().then(() => {
-      log.info('rule providers loaded');
-    });
-    const geoip = await loadGeoip(cfg.geoipUrl, join(cache, 'geoip.mmdb'));
+    const sameProviders = previous && JSON.stringify([...cfg.ruleProviders]) ===
+      JSON.stringify([...previous.opts.config.ruleProviders]);
+    if (sameProviders) {
+      this.providers = previous.providers;
+    } else {
+      this.providers = new RuleProviders(cfg.ruleProviders, {
+        cacheDir: () => cache,
+        fetch: async (u: string) => {
+          const r = await fetch(u, {
+            headers: { 'user-agent': CLASH_USER_AGENT },
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return readTextBounded(r);
+        },
+        readFile: async (p: string) => {
+          const f = Bun.file(p);
+          return (await f.exists()) ? f.text() : null;
+        },
+        now: () => Date.now(),
+      }, previous?.providers ?? undefined);
+      // providers 后台加载（不阻塞启动；引擎持有 live Map，每轮刷新后回调确认）
+      this.providers.subscribe(() => {
+        if (this.providers !== null && this.providers.liveView().size > 0) {
+          log.info(`rule providers available: ${this.providers.liveView().size}`);
+        }
+      });
+      void this.providers.loadAll().then(() => {
+        log.info('rule providers loaded');
+      });
+    }
+    this.geoip = previous && cfg.geoipUrl === previous.opts.config.geoipUrl &&
+      (previous.geoip !== null || !cfg.geoipUrl)
+      ? previous.geoip : await loadGeoip(cfg.geoipUrl, join(cache, 'geoip.mmdb'));
+    const geoip = this.geoip;
     const finalTarget = cfg.rules.filter((r) => r.type === 'MATCH').length > 0 ? '' : 'DIRECT';
     this.engine = new RuleEngine({
       rules: cfg.rules,
-      providers: this.providers.liveView(),
+      providers: this.providers!.liveView(),
       geoip: geoip ? (ip: string) => geoip.country(ip) : null,
       final: finalTarget === '' ? 'DIRECT' : finalTarget,
     });
@@ -178,91 +209,112 @@ export class App {
     if (fingerprint(config) === fingerprint(this.opts.config)) return;
     const next = new App({ ...this.opts, config });
     try {
-      await next.prepareRouting();
+      await next.prepareRouting(this);
       if (this.stopped) throw new Error('app stopped');
     } catch (e) {
-      next.closeRouting();
+      next.closeRouting(this);
       throw e;
     }
-    this.closeRouting();
+    this.closeRouting(next, true);
     this.outbounds = next.outbounds;
     this.providers = next.providers;
     this.engine = next.engine;
+    this.geoip = next.geoip;
     this.opts.config = config;
     log.info('subscription configuration reloaded');
   }
 
-  private closeRouting(): void {
-    this.providers?.stop();
-    for (const o of this.outbounds.values()) o.close();
+  private closeRouting(preserve?: App, drain = false): void {
+    if (this.providers !== preserve?.providers) this.providers?.stop();
+    for (const [name, outbound] of this.outbounds) {
+      if (preserve?.outbounds.get(name) === outbound) continue;
+      // 策略组只停止自己的探测；叶子出站的所有权由 App 统一管理。
+      if (outbound instanceof AutoGroup) outbound.stop();
+      else if (outbound instanceof SelectGroup) continue;
+      else if (drain && outbound instanceof AnytlsOutbound) {
+        this.retired.add(outbound);
+        outbound.retire(() => this.retired.delete(outbound));
+      } else outbound.close();
+    }
     this.outbounds.clear();
   }
 
   async start(): Promise<void> {
     this.stopped = false;
-    await this.prepareRouting();
-    const cfg = this.opts.config;
-    // 入站
-    const httpPort = this.opts.overrides?.httpPort ?? cfg.httpPort;
-    const socksPort = this.opts.overrides?.socksPort ?? cfg.socksPort;
-    const routerWrap = {
-      resolve: (ctx: { host: string; port: number; isIp: boolean }) => {
-        const mode = this.runtimeMode;
-        if (mode === 'direct') return { outbound: 'DIRECT' } as const;
-        if (mode === 'global') {
-          // 全局模式：优先 select 组当前选中（含 selected-node），否则第一个 anytls 出站
-          const group = this.outbounds.get(this.groupLabel) as SelectGroup | undefined;
-          if (group && typeof group.current === 'function') {
-            const member = group.current();
-            if (member && member !== 'DIRECT') return { outbound: member } as const;
+    try {
+      await this.prepareRouting();
+      const cfg = this.opts.config;
+      // 入站
+      const httpPort = this.opts.overrides?.httpPort ?? cfg.httpPort;
+      const socksPort = this.opts.overrides?.socksPort ?? cfg.socksPort;
+      const routerWrap = {
+        resolve: (ctx: { host: string; port: number; isIp: boolean }) => {
+          const mode = this.runtimeMode;
+          if (mode === 'direct') return { outbound: 'DIRECT' } as const;
+          if (mode === 'global') {
+            // 全局模式：优先 select 组当前选中（含 selected-node），否则第一个 anytls 出站
+            const group = this.outbounds.get(this.groupLabel) as SelectGroup | undefined;
+            if (group && typeof group.current === 'function') {
+              const member = group.current();
+              if (member && member !== 'DIRECT') return { outbound: member } as const;
+            }
+            const firstProxy = this.opts.config.proxies.find((p) => p.kind === 'anytls');
+            return { outbound: firstProxy ? firstProxy.name : 'DIRECT' } as const;
           }
-          const firstProxy = this.opts.config.proxies.find((p) => p.kind === 'anytls');
-          return { outbound: firstProxy ? firstProxy.name : 'DIRECT' } as const;
-        }
-        return this.engine!.resolve(ctx);
-      },
-    };
-    const outboundOf = (name: string) => this.outbounds.get(name);
-    type OpenInfo = Parameters<NonNullable<ConstructorParameters<typeof HttpInbound>[0]['onOpen']>>[0];
-    const onOpen = (info: OpenInfo) => {
-      this.tracker.open({
-        id: info.id,
-        protocol: 'http',
-        host: info.host,
-        destinationIP: '',
-        port: info.port,
-        chains: info.chain,
-        start: Date.now(),
-        meter: info.meter,
-        close: info.close,
-      });
-    };
-    const onClose = (id: string) => {
-      const c = this.tracker.get(id);
-      if (c) this.tracker.close(id);
-    };
-    const http = new HttpInbound({ port: httpPort, router: routerWrap, outboundOf, onOpen, onClose });
-    const socks = new Socks5Inbound({ port: socksPort, router: routerWrap, outboundOf, onOpen, onClose });
-    await http.start();
-    await socks.start();
-    this.inbounds = [http, socks];
+          return this.engine!.resolve(ctx);
+        },
+      };
+      const outboundOf = (name: string) => this.outbounds.get(name);
+      type OpenInfo = Parameters<NonNullable<ConstructorParameters<typeof HttpInbound>[0]['onOpen']>>[0];
+      const onOpen = (info: OpenInfo) => {
+        this.tracker.open({
+          id: info.id,
+          protocol: 'http',
+          host: info.host,
+          destinationIP: '',
+          port: info.port,
+          chains: info.chain,
+          start: Date.now(),
+          meter: info.meter,
+          close: info.close,
+        });
+      };
+      const onClose = (id: string) => {
+        const c = this.tracker.get(id);
+        if (c) this.tracker.close(id);
+      };
+      const http = new HttpInbound({ port: httpPort, router: routerWrap, outboundOf, onOpen, onClose });
+      const socks = new Socks5Inbound({ port: socksPort, router: routerWrap, outboundOf, onOpen, onClose });
+      this.inbounds = [http, socks];
+      await startListener('HTTP', httpPort, () => http.start());
+      await startListener('SOCKS5', socksPort, () => socks.start());
 
-    // API
-    const owner = this;
-    this.api = new RestApi({
-      tracker: this.tracker,
-      loopbackPort: 0,
-      outboundOf: (n) => this.outbounds.get(n),
-      outboundNames: () => [...this.outbounds.keys()],
-      get engine() { return owner.engine!; },
-      reloadConfig: this.opts.reloadConfig,
-      secret: cfg.apiSecret,
-      setMode: (m) => this.setMode(m),
-      currentMode: () => this.runtimeMode,
-    });
-    const apiPort = this.opts.overrides?.apiPort;
-    await this.api.start(apiPort !== undefined ? `127.0.0.1:${apiPort}` : cfg.apiAddr);
-    log.info(`ready: http=${http.port} socks=${socks.port} api=${this.api.port}`);
+      // API
+      const owner = this;
+      this.api = new RestApi({
+        tracker: this.tracker,
+        loopbackPort: 0,
+        outboundOf: (n) => this.outbounds.get(n),
+        outboundNames: () => [...this.outbounds.keys()],
+        get engine() { return owner.engine!; },
+        reloadConfig: this.opts.reloadConfig,
+        disableSystemProxy: this.opts.disableSystemProxy,
+        prepareShutdown: this.opts.prepareShutdown,
+        shutdown: this.opts.shutdown,
+        secret: cfg.apiSecret,
+        setMode: (m) => this.setMode(m),
+        currentMode: () => this.runtimeMode,
+      });
+      const apiPort = this.opts.overrides?.apiPort;
+      const apiAddr = apiPort !== undefined ? `127.0.0.1:${apiPort}` : cfg.apiAddr;
+      const configuredApiPort = Number(/:(\d+)$/.exec(apiAddr ?? '')?.[1] ?? 9090);
+      const api = this.api;
+      await startListener('API', configuredApiPort, () => api.start(apiAddr));
+      log.info(`ready: http=${http.port} socks=${socks.port} api=${this.api.port}`);
+    } catch (e) {
+      await this.stop();
+      throw e;
+    }
   }
 
   async stop(): Promise<void> {
@@ -272,6 +324,8 @@ export class App {
     this.api?.stop();
     this.api = null;
     this.closeRouting();
+    for (const outbound of this.retired) outbound.close();
+    this.retired.clear();
     log.info('stopped');
   }
 

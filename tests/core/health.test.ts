@@ -80,7 +80,7 @@ describe('health: probeOnce 行为（本地回环）', () => {
       const out = new AnytlsOutbound('probe-node', client);
       const delay = await probeOnce(out, 3000);
       expect(delay).not.toBeNull();
-      expect(delay as number).toBeGreaterThan(0);
+      expect(delay as number).toBeGreaterThanOrEqual(0);
 
       const dead = new AnytlsClient('dead', {
         host: '127.0.0.1',

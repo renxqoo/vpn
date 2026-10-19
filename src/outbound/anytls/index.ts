@@ -5,7 +5,8 @@
 import type { SocksAddr } from '../../core/socksaddr.ts';
 import type { Conn, Outbound } from '../../core/types.ts';
 import { AnytlsClient } from './client.ts';
-import { aggregateHealth, recordSample, type HealthSample, type HealthSummary } from '../../core/health.ts';
+import { aggregateHealth, probeConnection, recordSample } from '../../core/health.ts';
+import type { HealthSample, HealthSummary } from '../../core/health.ts';
 import { AnytlsStream, EofError } from './session.ts';
 
 class AnytlsConn implements Conn {
@@ -80,44 +81,17 @@ export class AnytlsOutbound implements Outbound {
     return aggregateHealth(this.healthHistory);
   }
 
-  async probe(_url: string, timeoutMs: number): Promise<number | null> {
-    const delay = await this.probeInner(_url, timeoutMs);
+  async probe(_url: string, timeoutMs: number, options?: { isolated?: boolean }): Promise<number | null> {
+    const client = options?.isolated ? this.client.createProbeClient() : this.client;
+    let delay: number | null;
+    try { delay = await probeConnection({ connect: (target) => AnytlsConn.open(client, target) }, _url, timeoutMs); }
+    finally { if (options?.isolated) client.close(); }
     this.healthHistory = recordSample(this.healthHistory, { at: Date.now(), delayMs: delay });
     return delay;
   }
 
-  private async probeInner(_url: string, timeoutMs: number): Promise<number | null> {
-    const start = Date.now();
-    try {
-      const url = new URL(_url);
-      const target: SocksAddr = {
-        type: 'fqdn',
-        host: url.hostname,
-        port: Number(url.port) || 80,
-      };
-      const conn = await AnytlsConn.open(this.client, target);
-      // 无论成功/超时/异常，探测流必须关闭（否则会话永远不回池 → TLS 连接泄漏）
-      let settled = false;
-      const finish = (v: number | null): number | null => {
-        if (!settled) {
-          settled = true;
-          conn.close();
-        }
-        return v;
-      };
-      const timer = new Promise<null>((r) => setTimeout(() => r(null), timeoutMs));
-      const req = (async () => {
-        await conn.write(
-          new TextEncoder().encode(`HEAD ${url.pathname || '/'} HTTP/1.0\r\nHost: ${url.hostname}\r\n\r\n`),
-        );
-        await conn.read(128);
-        return finish(Date.now() - start);
-      })();
-      const result = await Promise.race([req, timer]);
-      return finish(result);
-    } catch (_e) {
-      return null;
-    }
+  retire(onDrained: () => void): void {
+    this.client.retire(onDrained);
   }
 
   close(): void {

@@ -50,7 +50,7 @@ test('CLI subscription update synchronizes .env, stored selection and a running 
   await Bun.write(homePath, `subscription-url: '${url}'\nselected-node: '旧节点'\n`, {
     createPath: true,
   });
-  const kernel = Bun.spawn([process.execPath, cli, 'start'], {
+  const kernel = Bun.spawn([process.execPath, cli, 'start', '--no-system-proxy'], {
     cwd: root, env, stdout: 'pipe', stderr: 'pipe',
   });
   const base = `http://127.0.0.1:${apiPort}`;

@@ -6,7 +6,7 @@
  * Stream 提供类 net.Conn 的 reader/writer 接口（Promise 化）。
  */
 
-import { logger } from '../../core/log.ts';
+import { getLogLevel, logger } from '../../core/log.ts';
 import type { RandomSource } from '../../core/random.ts';
 import { cryptoRandom } from '../../core/random.ts';
 import { encodeSocksAddr, type SocksAddr } from '../../core/socksaddr.ts';
@@ -63,7 +63,7 @@ export class AnytlsSession {
   private writeQueueBytes = 0;
   private static readonly MAX_WRITE_QUEUE_BYTES = 4 * 1024 * 1024;
   private writing = false;
-  private recvBuf = new Uint8Array(0);
+  private recvBuf: Uint8Array = new Uint8Array(0);
   // 认证后立即 settings + buffering，对齐参考实现：直到首个 SYN 发出才 flush
   private buffering = true;
   private bufferList: Uint8Array[] = [];
@@ -178,10 +178,13 @@ export class AnytlsSession {
   }
 
   private onData(data: Buffer): void {
-    log.debug(`session ${this.seq} recv ${data.length}B`);
-    const merged = new Uint8Array(this.recvBuf.length + data.length);
-    merged.set(this.recvBuf);
-    merged.set(data, this.recvBuf.length);
+    if (getLogLevel() === 'debug') log.debug(`session ${this.seq} recv ${data.length}B`);
+    let merged: Uint8Array = data;
+    if (this.recvBuf.length > 0) {
+      merged = new Uint8Array(this.recvBuf.length + data.length);
+      merged.set(this.recvBuf);
+      merged.set(data, this.recvBuf.length);
+    }
     let offset = 0;
     for (;;) {
       const r = decodeFrame(merged, offset);
@@ -189,11 +192,13 @@ export class AnytlsSession {
       this.handleFrame(r.frame);
       offset += r.consumed;
     }
-    this.recvBuf = merged.subarray(offset);
+    this.recvBuf = offset === merged.length ? new Uint8Array(0) : merged.subarray(offset);
   }
 
   private handleFrame(frame: { cmd: number; sid: number; data: Uint8Array }): void {
-    log.debug(`session ${this.seq} frame cmd=${frame.cmd} sid=${frame.sid} ${frame.data.length}B`);
+    if (getLogLevel() === 'debug') {
+      log.debug(`session ${this.seq} frame cmd=${frame.cmd} sid=${frame.sid} ${frame.data.length}B`);
+    }
     switch (frame.cmd) {
       case CMD.psh: {
         if (frame.data.length === 0) break;
@@ -352,11 +357,13 @@ export class AnytlsSession {
     }
     const total = bytes.reduce((n, b) => n + b.length, 0);
     if (total === 0) return Promise.resolve();
-    const merged = new Uint8Array(total);
-    let off = 0;
-    for (const b of bytes) {
-      merged.set(b, off);
-      off += b.length;
+    const merged = bytes.length === 1 ? bytes[0]! : new Uint8Array(total);
+    if (bytes.length > 1) {
+      let off = 0;
+      for (const b of bytes) {
+        merged.set(b, off);
+        off += b.length;
+      }
     }
     try {
       const n = sock.write(merged);
@@ -379,6 +386,7 @@ export class AnytlsSession {
     let merged: Uint8Array | null = null;
     const merge = (): Uint8Array => {
       if (merged) return merged;
+      if (chunks.length === 1) return chunks[0]!;
       merged = new Uint8Array(total);
       let off = 0;
       for (const b of chunks) {
@@ -471,6 +479,17 @@ export class AnytlsStream {
   }
 
   private takeFromBuffer(length: number): Uint8Array {
+    const first = this.recvChunks[0]!;
+    if (length > 0 && (this.recvChunks.length === 1 || first.length >= length)) {
+      const count = Math.min(length, first.length);
+      this.recvSize -= count;
+      if (count === first.length) {
+        this.recvChunks.shift();
+        return first;
+      }
+      this.recvChunks[0] = first.subarray(count);
+      return first.subarray(0, count);
+    }
     const out: Uint8Array[] = [];
     let taken = 0;
     while (this.recvChunks.length > 0 && taken < length) {

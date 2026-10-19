@@ -9,6 +9,9 @@ import type { Conn, Outbound } from '../core/types.ts';
 import type { ProxyGroupConfig } from '../config/clash.ts';
 
 const log = logger('group');
+function sameMembers(a: ReadonlyMap<string, Outbound>, b: ReadonlyMap<string, Outbound>): boolean {
+  return a.size === b.size && [...b].every(([name, outbound]) => a.get(name) === outbound);
+}
 
 export type ProxyOrGroup = Outbound & { kind?: 'proxy' | 'group'; typeName?: string };
 
@@ -34,6 +37,10 @@ export class SelectGroup implements Outbound {
     this.now = name;
     log.info(`[${this.name}] select -> ${name}`);
     return true;
+  }
+
+  hasSameMembers(members: ReadonlyMap<string, Outbound>): boolean {
+    return sameMembers(this.members, members);
   }
 
   memberNames(): string[] {
@@ -80,6 +87,10 @@ export class AutoGroup implements Outbound {
 
   current(): string {
     return this.currentName;
+  }
+
+  hasSameMembers(members: ReadonlyMap<string, Outbound>): boolean {
+    return sameMembers(this.members, members);
   }
 
   memberNames(): string[] {
@@ -159,9 +170,13 @@ export class AutoGroup implements Outbound {
     return picked.connect(target);
   }
 
-  close(): void {
+  stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  close(): void {
+    this.stop();
     for (const m of this.members.values()) m.close();
   }
 }

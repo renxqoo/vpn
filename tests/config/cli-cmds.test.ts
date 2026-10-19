@@ -138,6 +138,11 @@ test('CLI controller lookup keeps running port and secret when subscription valu
     expect(await resolveController(23456, 'new-secret')).toEqual({ apiPort: 23456, secret: 'new-secret' });
     await Bun.write(path, JSON.stringify({ pid: -1, apiPort: 12345, secret: 'stale' }));
     expect(await resolveController(23456, 'new-secret')).toEqual({ apiPort: 23456, secret: 'new-secret' });
+    if (process.platform !== 'win32') {
+      await Bun.write(path, JSON.stringify({ pid: process.pid, birth: 'old process birth',
+        apiPort: 12345, secret: 'stale' }));
+      expect(await resolveController(23456, 'new-secret')).toEqual({ apiPort: 23456, secret: 'new-secret' });
+    }
   } finally {
     rmSync(path, { force: true });
   }

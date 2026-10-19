@@ -36,6 +36,8 @@ export class AnytlsClient {
   private idle = new Map<number, { session: AnytlsSession; openedTotal: number }>();
   private seqCounter = 0;
   private closed = false;
+  private retiring = false;
+  private onDrained: (() => void) | null = null;
   private pendingConnects = new Set<() => void>();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -56,6 +58,11 @@ export class AnytlsClient {
   /** 当前 padding factory（UpdatePaddingScheme 生效后替换） */
   currentPadding(): PaddingFactory {
     return this.paddingFactory;
+  }
+
+  /** 按需探测使用独立连接池，超时可关闭它而不打断实际转发流。 */
+  createProbeClient(): AnytlsClient {
+    return new AnytlsClient(this.name, { ...this.opts });
   }
 
   private updatePaddingScheme(raw: string): boolean {
@@ -152,6 +159,7 @@ export class AnytlsClient {
           onDead: () => {
             this.sessions.delete(seq);
             this.idle.delete(seq);
+            this.finishRetirement();
           },
           onUpdatePaddingScheme: (raw) => this.updatePaddingScheme(raw),
           onAlert: (msg) => log.warn(`[${this.name}] server alert: ${msg}`),
@@ -177,6 +185,7 @@ export class AnytlsClient {
     } finally {
       clearTimeout(connectTimer);
       this.pendingConnects.delete(cancel);
+      this.finishRetirement();
     }
   }
 
@@ -201,13 +210,17 @@ export class AnytlsClient {
 
   private releaseToIdle(session: AnytlsSession, openedTotal: number): void {
     if (session.isDead() || this.closed) return;
+    if (this.retiring) {
+      session.close();
+      return;
+    }
     session.idleSince = Date.now();
     this.idle.set(session.seq, { session, openedTotal });
   }
 
   /** 开一条新流（自动选择/创建会话）；流彻底结束（close hook）时回池 */
   async openStream(): Promise<{ stream: AnytlsStream; done: Promise<void> }> {
-    if (this.closed) throw new Error('client closed');
+    if (this.closed || this.retiring) throw new Error('client closed');
     let session = this.takeIdle();
     if (!session) session = await this.createSession();
     if (this.closed) {
@@ -276,6 +289,21 @@ export class AnytlsClient {
     return this.idle.size;
   }
 
+  /** 停止接收新连接；已有流结束后释放对应会话，不再回空闲池。 */
+  retire(onDrained: () => void): void {
+    this.retiring = true;
+    this.onDrained = onDrained;
+    if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+    this.cleanupTimer = null;
+    for (const entry of this.idle.values()) entry.session.close();
+    this.idle.clear();
+    this.finishRetirement();
+  }
+
+  private finishRetirement(): void {
+    if (this.retiring && this.sessions.size === 0 && this.pendingConnects.size === 0) this.close();
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;
@@ -285,5 +313,8 @@ export class AnytlsClient {
     for (const s of this.sessions.values()) s.close();
     this.sessions.clear();
     this.idle.clear();
+    const drained = this.onDrained;
+    this.onDrained = null;
+    drained?.();
   }
 }

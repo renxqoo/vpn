@@ -8,7 +8,8 @@ import * as p from '@clack/prompts';
 import { collectFileInputs, mergeSource } from './settings.ts';
 import { readSelectedNode } from './nodes.ts';
 import { readMode } from './mode.ts';
-import { regionOf } from './nodes.ts';
+import { resolveController } from './controller.ts';
+import { formatNodeHealth, healthFromProxies, nodeHealthLines, type NodeHealthMap } from './node-health.ts';
 
 export interface ApiState {
   mode: 'rule' | 'global' | 'direct';
@@ -21,27 +22,27 @@ export interface ApiState {
   downRate: number;
   rules: number;
   proxies: number;
+  nodeHealth: NodeHealthMap;
 }
 
-async function probeApi(apiPort: number): Promise<ApiState | null> {
+async function probeApi(apiPort: number, secret: string): Promise<ApiState | null> {
   const base = `http://127.0.0.1:${apiPort}`;
+  const headers = secret ? { authorization: `Bearer ${secret}` } : undefined;
+  const get = (path: string) => fetch(base + path, { headers, signal: AbortSignal.timeout(1500) });
   try {
     const [versionRes, proxiesRes, connsRes, rulesRes] = await Promise.all([
-      fetch(`${base}/version`, { signal: AbortSignal.timeout(1500) }),
-      fetch(`${base}/proxies`, { signal: AbortSignal.timeout(1500) }),
-      fetch(`${base}/connections`, { signal: AbortSignal.timeout(1500) }),
-      fetch(`${base}/rules`, { signal: AbortSignal.timeout(1500) }),
+      get('/version'), get('/proxies'), get('/connections'), get('/rules'),
     ]);
-    if (!versionRes.ok) return null;
+    if (![versionRes, proxiesRes, connsRes, rulesRes].every((response) => response.ok)) return null;
     const proxies = (await proxiesRes.json()) as {
-      proxies: Record<string, { type: string; now?: string; history?: Record<string, number>[] }>;
+      proxies: Record<string, { type: string; now?: string; history?: Record<string, number>[]; health?: unknown }>;
     };
     const conns = (await connsRes.json()) as {
       totals?: { upload: number; download: number };
       connections: { upload: number; download: number; upRate: number; downRate: number }[];
     };
     const rules = (await rulesRes.json()) as { rules: unknown[] };
-    const configsRes = await fetch(`${base}/configs`, { signal: AbortSignal.timeout(1500) });
+    const configsRes = await get('/configs');
     const configs = (await configsRes.json()) as { mode: ApiState['mode'] };
 
     const group = proxies.proxies['🚀 节点选择'] as { type: string; now?: string } | undefined;
@@ -54,9 +55,7 @@ async function probeApi(apiPort: number): Promise<ApiState | null> {
     }
     // 组成员的延迟视图在 /proxies/<node> 的 history；组上若无，试当前节点详情
     if (delay === null && groupNow) {
-      const nodeRes = await fetch(`${base}/proxies/${encodeURIComponent(groupNow)}`, {
-        signal: AbortSignal.timeout(1500),
-      });
+      const nodeRes = await get(`/proxies/${encodeURIComponent(groupNow)}`);
       if (nodeRes.ok) {
         const node = (await nodeRes.json()) as { history?: Record<string, number | null> };
         const h = node.history;
@@ -67,8 +66,8 @@ async function probeApi(apiPort: number): Promise<ApiState | null> {
         }
       }
     }
-    const groupTypes = new Set(['Selector', 'URLTest', 'URLFallback']);
-    const anytlsCount = Object.values(proxies.proxies).filter((x) => !groupTypes.has(x.type)).length;
+    const nodeHealth = healthFromProxies(proxies.proxies);
+    if (groupNow && nodeHealth[groupNow]?.samples) delay = nodeHealth[groupNow]!.delay;
     return {
       mode: configs.mode,
       groupNow,
@@ -79,7 +78,8 @@ async function probeApi(apiPort: number): Promise<ApiState | null> {
       upRate: conns.connections.reduce((n, c) => n + c.upRate, 0),
       downRate: conns.connections.reduce((n, c) => n + c.downRate, 0),
       rules: rules.rules.length,
-      proxies: anytlsCount,
+      proxies: Object.keys(nodeHealth).length,
+      nodeHealth,
     };
   } catch (_e) {
     return null;
@@ -99,8 +99,8 @@ export async function runStatusCommand(apiPortArg?: number): Promise<void> {
   const src = mergeSource(await collectFileInputs());
   const selected = await readSelectedNode();
   const modeInConfig = await readMode();
-  const apiPort = apiPortArg ?? src.apiPort ?? 9090;
-  const api = await probeApi(apiPort);
+  const { apiPort, secret } = await resolveController(src.apiPort ?? 9090, src.secret ?? '', apiPortArg);
+  const api = await probeApi(apiPort, secret);
 
   p.intro('bun-clash 状态');
 
@@ -122,7 +122,9 @@ export async function runStatusCommand(apiPortArg?: number): Promise<void> {
   ];
   if (api) {
     rows.push(['当前出口', api.groupNow ?? '（无）']);
-    rows.push(['节点延迟', api.delay !== null ? `${api.delay} ms` : '（未探测）']);
+    const currentHealth = api.groupNow ? api.nodeHealth[api.groupNow] : undefined;
+    rows.push(['节点状态', currentHealth ? formatNodeHealth(currentHealth) :
+      api.delay !== null ? `可用 · ${api.delay}ms` : '未探测']);
   }
   rows.push(['HTTP 端口', String(src.httpPort ?? 7890)]);
   rows.push(['SOCKS 端口', String(src.socksPort ?? 7891)]);
@@ -142,14 +144,9 @@ export async function runStatusCommand(apiPortArg?: number): Promise<void> {
     p.log.message(`  规则数  ${api.rules} · 节点 ${api.proxies} 个`);
   }
 
-  // 节点健康段（每地区代表节点：地区首个节点的最近探测）
-  const regionHealth = await fetchRegionHealth(apiPort);
-  if (regionHealth.length > 0) {
-    p.log.message('  节点状态（每地区代表，最近探测）');
-    for (const r of regionHealth) {
-      const state = r.alive ? `✓ ${r.delay}ms` : '✗ 不可用';
-      p.log.message(`    ${r.region.padEnd(4, '　')} ${state}`);
-    }
+  if (api && Object.keys(api.nodeHealth).length > 0) {
+    p.log.message('  全部节点（最近探测；nodes --check 可刷新）');
+    for (const line of nodeHealthLines(Object.keys(api.nodeHealth), api.nodeHealth)) p.log.message(`    ${line}`);
   }
 
   p.outro(api ? '提示：bun-clash nodes / mode 可切换；usage 看流量' : '提示：bun-clash start 启动内核');
@@ -167,35 +164,5 @@ function maskUrl(url: string): string {
     return `${u.host}/${seg.join('/')}${u.search}`;
   } catch (_e) {
     return url;
-  }
-}
-
-interface RegionHealth {
-  region: string;
-  alive: boolean;
-  delay: number | null;
-}
-
-async function fetchRegionHealth(apiPort: number): Promise<RegionHealth[]> {
-  const base = `http://127.0.0.1:${apiPort}`;
-  try {
-    const res = await fetch(`${base}/proxies`, { signal: AbortSignal.timeout(1500) });
-    if (!res.ok) return [];
-    const data = (await res.json()) as {
-      proxies: Record<string, { type: string; health?: { alive: boolean; delay: number | null } | null }>;
-    };
-    const out: RegionHealth[] = [];
-    const seenRegion = new Set<string>();
-    for (const [name, info] of Object.entries(data.proxies)) {
-      if (info.type === 'Selector' || info.type === 'URLTest' || info.type === 'URLFallback') continue;
-      const region = regionOf(name);
-      if (seenRegion.has(region)) continue;
-      if (!info.health) continue; // 未探测过的跳过（不冒充可用）
-      seenRegion.add(region);
-      out.push({ region, alive: info.health.alive, delay: info.health.delay });
-    }
-    return out;
-  } catch (_e) {
-    return [];
   }
 }

@@ -12,6 +12,8 @@ import { defaultStore, loadSubscription } from '../config/subscription.ts';
 import { resolveController } from './controller.ts';
 import { hotReload } from './reload.ts';
 import type { AnytlsProxyConfig, ProxyConfig } from '../config/clash.ts';
+import { checkNodeHealth, fetchNodeHealth, formatNodeHealth, nodeHealthLines } from './node-health.ts';
+import type { NodeHealthMap } from './node-health.ts';
 
 const GROUP_LABEL = '🚀 节点选择';
 
@@ -100,6 +102,7 @@ export async function hotSwitch(
 export async function runNodesCommand(
   apiPortArg?: number,
   directPick?: string,
+  view: 'select' | 'list' | 'check' = 'select',
 ): Promise<void> {
   const files = await collectFileInputs();
   const src = mergeSource(files);
@@ -111,7 +114,7 @@ export async function runNodesCommand(
   const text = await loadSubscription(src.subscriptionUrl, defaultStore(cacheDirectory(), src.subscriptionUrl));
   const runtime = await buildRuntimeConfig({ files, subscriptionYaml: text });
   const cfg = runtime.config;
-  if (src.selectedNode && !runtime.settings.selectedNode) await writeSelectedNode(null);
+  if (view === 'select' && src.selectedNode && !runtime.settings.selectedNode) await writeSelectedNode(null);
   const nodes = listSelectableNodes(cfg.proxies);
   if (nodes.length === 0) {
     p.intro('bun-clash 节点选择');
@@ -123,11 +126,31 @@ export async function runNodesCommand(
   const { apiPort, secret } = await resolveController(
     runtime.overrides.apiPort, runtime.config.apiSecret, apiPortArg,
   );
-  if (directPick !== undefined) {
+  if (directPick !== undefined && view === 'select') {
     await applyPick(directPick, apiPort, nodes, secret);
     return;
   }
-  const healthByNode = await fetchNodeHealth(apiPort, secret);
+  const names = nodes.map((node) => node.name);
+  if (view === 'check') {
+    const targets = directPick === undefined ? names : names.filter((name) => name === directPick);
+    if (targets.length === 0) throw new Error(`节点不存在: ${directPick}`);
+    if (await fetchNodeHealth(apiPort, secret) === null) throw new Error('内核未运行，请先执行 bun-clash start');
+    const progress = p.spinner();
+    progress.start(`正在轻量探测 ${targets.length} 个节点（不切换当前节点）`);
+    try {
+      await checkNodeHealth(targets, apiPort, secret, (done, total) => progress.message(`已探测 ${done}/${total}`));
+      progress.stop('节点探测完成');
+    } catch (e) { progress.stop('节点探测未完成'); throw e; }
+  }
+  const health = await fetchNodeHealth(apiPort, secret);
+  const healthByNode = health ?? (Object.create(null) as NodeHealthMap);
+
+  if (view !== 'select') {
+    p.intro('bun-clash 全部节点（最近探测）');
+    for (const line of nodeHealthLines(names, healthByNode)) p.log.message(line);
+    p.outro(health === null ? '内核未运行；状态显示为未探测' : '提示：nodes --check 刷新；nodes 可选择节点');
+    return;
+  }
 
   p.intro('bun-clash 节点选择');
   type Opt = { value: { group: boolean; label: string }; label: string; hint?: string };
@@ -136,12 +159,8 @@ export async function runNodesCommand(
     options.push({ value: { group: true, label: region }, label: `— ${region} —`, hint: `${list.length} 个节点` });
     for (const n of list) {
       const h = healthByNode[n.name];
-      const hint = h
-        ? h.alive
-          ? `${h.delay}ms · ${n.server}`
-          : `不可用 · ${n.server}`
-        : n.server;
-      options.push({ value: { group: false, label: n.name }, label: n.name, hint });
+      options.push({ value: { group: false, label: n.name },
+        label: `${n.name}  ${formatNodeHealth(h)}`, hint: n.server });
     }
   }
   const currentEntry = current ? nodes.find((n) => n.name === current) : undefined;
@@ -184,26 +203,4 @@ async function applyPick(
   } else {
     p.outro(`✓ 节点: ${nodeName}\n${note}`);
   }
-}
-
-async function fetchNodeHealth(
-  apiPort: number, secret = '',
-): Promise<Record<string, { alive: boolean; delay: number | null }>> {
-  const out: Record<string, { alive: boolean; delay: number | null }> = {};
-  try {
-    const res = await fetch(`http://127.0.0.1:${apiPort}/proxies`, {
-      headers: secret ? { authorization: `Bearer ${secret}` } : undefined,
-      signal: AbortSignal.timeout(1500),
-    });
-    if (!res.ok) return out;
-    const data = (await res.json()) as {
-      proxies: Record<string, { health?: { alive: boolean; delay: number | null } | null }>;
-    };
-    for (const [name, info] of Object.entries(data.proxies)) {
-      if (info.health) out[name] = { alive: info.health.alive, delay: info.health.delay };
-    }
-  } catch (_e) {
-    /* 内核未运行——列表无延迟列 */
-  }
-  return out;
 }

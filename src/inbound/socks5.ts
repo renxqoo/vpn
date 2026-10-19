@@ -12,10 +12,16 @@ const MAX_GREETING = 257 + 8;
 const HANDSHAKE_TIMEOUT = 30_000;
 
 function withIdleTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('idle timeout')), ms)),
-  ]);
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('idle timeout')), ms);
+    p.then((value) => {
+      clearTimeout(timer);
+      resolve(value);
+    }, (error: unknown) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
 }
 const MAX_EARLY = 256 * 1024;
 

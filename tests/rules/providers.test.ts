@@ -89,3 +89,27 @@ test('stopping a provider during initial load cannot recreate its refresh timer'
   expect(fetches).toBe(1);
   provider.stop();
 });
+
+test('inherited fresh providers retain their original refresh deadline when another provider changes', async () => {
+  let now = 0;
+  let downloads = 0;
+  const configs = new Map([['kept', { ...cfg('kept', 'http://kept.test/rules'), interval: 0.1 }]]);
+  const store: ProviderStore = {
+    cacheDir: () => null,
+    fetch: async () => { downloads++; return 'payload:\n  - kept.test\n'; },
+    readFile: async () => null,
+    now: () => now,
+  };
+  const old = new RuleProviders(configs, store);
+  await old.loadAll();
+  old.stop();
+  now = 95;
+  const next = new RuleProviders(configs, store, old);
+  try {
+    await next.loadAll();
+    expect(downloads).toBe(1);
+    now = 100;
+    await Bun.sleep(30);
+    expect(downloads).toBe(2);
+  } finally { next.stop(); }
+});

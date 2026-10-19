@@ -10,6 +10,7 @@ import type { Outbound } from '../core/types.ts';
 import type { RuleEngine } from '../rules/index.ts';
 import { SelectGroup } from '../rules/groups.ts';
 import type { HealthSummary } from '../core/health.ts';
+import { NODE_CHECK_CONCURRENCY, NODE_CHECK_TIMEOUT, NODE_CHECK_URL } from '../core/health.ts';
 
 const log = logger('api');
 
@@ -26,6 +27,9 @@ export interface ApiDeps {
   setMode(mode: 'rule' | 'global' | 'direct'): boolean;
   currentMode(): 'rule' | 'global' | 'direct';
   reloadConfig?: () => Promise<void>;
+  disableSystemProxy?: () => Promise<void>;
+  prepareShutdown?: () => Promise<void>;
+  shutdown?: () => Promise<void>;
 }
 
 export class RestApi {
@@ -69,6 +73,8 @@ export class RestApi {
   private handler(): Bun.SocketHandler<undefined> {
     const deps = this.deps;
     let reloading = false;
+    let shuttingDown = false;
+    const checking = new Set<Outbound>();
     return {
       open(socket) {
         (socket.data as unknown as { buf: Uint8Array; bodyLen: number; headerEnd: number }) = {
@@ -197,6 +203,28 @@ export class RestApi {
         json(socket, 200, { proxies });
         return;
       }
+      const check = /^\/proxies\/(.+)\/healthcheck$/.exec(path);
+      if (check && method === 'POST') {
+        if (shuttingDown || reloading) { json(socket, 409, { message: 'kernel is changing' }); return; }
+        const name = check[1]!;
+        const outbound = deps.outboundOf(name);
+        if (!outbound) { json(socket, 404, { message: 'proxy not found' }); return; }
+        if (!outbound.probe || !healthView(outbound)) {
+          json(socket, 400, { message: 'proxy does not support healthcheck' }); return;
+        }
+        if (checking.size >= NODE_CHECK_CONCURRENCY || checking.has(outbound)) {
+          json(socket, 429, { message: 'healthcheck busy; retry later' }); return;
+        }
+        checking.add(outbound);
+        try {
+          await outbound.probe(NODE_CHECK_URL, NODE_CHECK_TIMEOUT, { isolated: true });
+          if (deps.outboundOf(name) !== outbound || shuttingDown || reloading) {
+            json(socket, 409, { message: 'proxy changed during healthcheck' }); return;
+          }
+          json(socket, 200, { health: healthView(outbound) });
+        } finally { checking.delete(outbound); }
+        return;
+      }
       const pm = /^\/proxies\/(.+)$/.exec(path);
       if (pm) {
         const name = pm[1] as string;
@@ -235,7 +263,32 @@ export class RestApi {
           return;
         }
       }
+      if (method === 'POST' && path === '/system-proxy/off') {
+        if (!deps.disableSystemProxy) { json(socket, 501, { message: 'system proxy control unavailable' }); return; }
+        try {
+          await deps.disableSystemProxy();
+          json(socket, 204, '');
+        } catch (_e) { json(socket, 400, { message: 'system proxy restore failed; retry after fixing permissions' }); }
+        return;
+      }
+      if (method === 'POST' && path === '/shutdown') {
+        if (!deps.shutdown) { json(socket, 501, { message: 'shutdown unavailable' }); return; }
+        if (shuttingDown) { json(socket, 409, { message: 'shutdown in progress' }); return; }
+        shuttingDown = true;
+        try { await deps.prepareShutdown?.(); } catch (_e) {
+          shuttingDown = false;
+          json(socket, 400, { message: 'system proxy restore failed; kernel kept running' });
+          return;
+        }
+        // 先让客户端收到恢复成功的响应，再关闭 API 监听器。
+        setTimeout(() => {
+          void deps.shutdown!().catch((e: unknown) => log.error(`shutdown failed: ${String(e).slice(0, 120)}`));
+        }, 25);
+        json(socket, 204, '');
+        return;
+      }
       if (method === 'POST' && path === '/configs/reload') {
+        if (shuttingDown) { json(socket, 409, { message: 'shutdown in progress' }); return; }
         if (!deps.reloadConfig) {
           json(socket, 501, { message: 'reload unavailable' });
           return;
@@ -339,6 +392,7 @@ export class RestApi {
         avgDelay: h.avgDelayMs,
         successRate: h.successRate,
         samples: h.samples,
+        checkedAt: h.checkedAt,
       };
     }
   }

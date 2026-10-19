@@ -105,7 +105,7 @@ describe('rest api', () => {
         return Promise.reject(new Error('stub'));
       }
       health(): HealthSummary {
-        return { alive: true, delayMs: 87, samples: 3, successRate: 1, avgDelayMs: 90 };
+        return { alive: true, delayMs: 87, samples: 3, successRate: 1, avgDelayMs: 90, checkedAt: Date.now() };
       }
       close(): void {}
     })();

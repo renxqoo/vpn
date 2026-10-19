@@ -14,10 +14,16 @@ const TUNNEL_IDLE_TIMEOUT = 120_000;
 const MAX_HEADER = 256 * 1024;
 
 function withIdleTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('idle timeout')), ms)),
-  ]);
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('idle timeout')), ms);
+    p.then((value) => {
+      clearTimeout(timer);
+      resolve(value);
+    }, (error: unknown) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
 }
 
 interface ClientState {

@@ -15,7 +15,7 @@ export interface Outbound {
   readonly name: string;
   connect(target: SocksAddr): Promise<Conn>;
   /** 可选：延迟探测（策略组 url-test 用；不支持返回 null） */
-  probe?(url: string, timeoutMs: number): Promise<number | null>;
+  probe?(url: string, timeoutMs: number, options?: { isolated?: boolean }): Promise<number | null>;
   close(): void;
 }
 
