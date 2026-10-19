@@ -99,7 +99,7 @@ export async function runStatusCommand(apiPortArg?: number): Promise<void> {
   const src = mergeSource(await collectFileInputs());
   const selected = await readSelectedNode();
   const modeInConfig = await readMode();
-  const apiPort = apiPortArg ?? 9090;
+  const apiPort = apiPortArg ?? src.apiPort ?? 9090;
   const api = await probeApi(apiPort);
 
   p.intro('bun-clash 状态');

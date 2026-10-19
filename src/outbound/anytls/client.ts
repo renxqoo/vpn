@@ -72,18 +72,23 @@ export class AnytlsClient {
     let opened = false;
     let openResolve: (() => void) | null = null;
     const openedPromise = new Promise<void>((r) => (openResolve = r));
-    // 建连超时（黑洞服务器防护，design §2.5）
+    // 建连超时（含 TCP 接受但 TLS 挂死：Bun.connect promise 永不 resolve 的形态）
     const CONNECT_TIMEOUT = 15_000;
+    let connectReject: ((e: Error) => void) | null = null;
+    const connectFailed = new Promise<never>((_, rej) => {
+      connectReject = rej;
+    });
     const connectTimer = setTimeout(() => {
-      session?.die('connect timeout');
+      connectReject?.(new Error('connect timeout (tcp or tls handshake)'));
       try {
         socketPlaceholder?.end();
       } catch (_e) {
         /* noop */
       }
+      session?.die('connect timeout');
     }, CONNECT_TIMEOUT);
     let socketPlaceholder: Bun.Socket<undefined> | null = null;
-    const socket = await Bun.connect({
+    const socket = await Promise.race([Bun.connect({
       hostname: this.opts.host,
       port: this.opts.port,
       tls: {
@@ -103,11 +108,15 @@ export class AnytlsClient {
         error(_s, err) {
           session?.die(String(err));
         },
-        open() {
+        open(sock) {
+          socketPlaceholder = sock;
           opened = true;
           openResolve?.();
         },
       },
+    }), connectFailed]).catch((e: unknown) => {
+      clearTimeout(connectTimer);
+      throw e;
     });
     session = new AnytlsSession(socket, seq, this.opts.password, {
       hooks: {
@@ -123,7 +132,10 @@ export class AnytlsClient {
       clientName: this.opts.clientName,
     });
     socketPlaceholder = socket;
-    if (!opened) await openedPromise; // open 未触发则等（触发了则 promise 已 resolve）
+    // Bun.connect 在 TCP 建连即 resolve；TLS open 回调可迟至永不——超时保护必须覆盖握手等待
+    if (!opened) {
+      await Promise.race([openedPromise, connectFailed]);
+    }
     openResolve = null;
     clearTimeout(connectTimer);
     session.markConnected();

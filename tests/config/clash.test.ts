@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { parseClashConfig } from '../../src/config/clash.ts';
 
-const subYaml = readFileSync(new URL('../fixtures/sub-synth.yaml', import.meta.url).pathname, 'utf8');
+const subYaml = readFileSync(fileURLToPath(new URL('../fixtures/sub-synth.yaml', import.meta.url)), 'utf8');
 
 describe('clash config: real subscription fixture', () => {
   const cfg = parseClashConfig(subYaml);

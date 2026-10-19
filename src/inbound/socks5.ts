@@ -10,6 +10,13 @@ import { MeteredPipe } from '../core/meter.ts';
 const log = logger('inbound:socks5');
 const MAX_GREETING = 257 + 8;
 const HANDSHAKE_TIMEOUT = 30_000;
+
+function withIdleTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('idle timeout')), ms)),
+  ]);
+}
 const MAX_EARLY = 256 * 1024;
 
 interface ClientState {
@@ -189,7 +196,7 @@ export class Socks5Inbound {
       if (st.buf.length > 0) {
         const early = st.buf;
         st.buf = new Uint8Array(0);
-        upstream.write(early).catch(() => socket.end());
+        meteredConn.write(early).catch(() => socket.end());
       }
       st.phase = 'tunnel';
       onOpen?.({
@@ -200,11 +207,11 @@ export class Socks5Inbound {
         meter: meteredConn,
         close: () => socket.end(),
       });
-      // 上游 → 客户端（经 meter 计量）
+      // 上游 → 客户端（经 meter 计量；空闲超时防静默上游）
       void (async () => {
         try {
           for (;;) {
-            const chunk = await st.upstream!.read(65536);
+            const chunk = await withIdleTimeout(st.upstream!.read(65536), 120_000);
             socket.write(chunk);
           }
         } catch (_e) {

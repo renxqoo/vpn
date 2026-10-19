@@ -28,7 +28,8 @@ beforeAll(() => {
 });
 afterAll(() => {
   process.env.HOME = realHome;
-  process.env.USERPROFILE = realProfile;
+  if (realProfile !== undefined) process.env.USERPROFILE = realProfile;
+  else delete process.env.USERPROFILE;
   rmSync(home, { recursive: true, force: true });
   rmSync(cwd, { recursive: true, force: true });
 });

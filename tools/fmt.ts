@@ -38,16 +38,17 @@ let files = 0;
 for (const g of GLOBS) {
   for await (const path of new Glob(g).scan({ cwd: ROOT, onlyFiles: true })) {
     files++;
-    const full = ROOT + '/' + path;
+    const normPath = path.replace(/\\/g, '/');
+    const full = ROOT + '/' + normPath;
     const text = await Bun.file(full).text();
     const norm = normalize(text);
     if (norm !== text) {
       if (CHECK) {
-        console.log(`fmt: ${path} not normalized`);
+        console.log(`fmt: ${normPath} not normalized`);
         dirty++;
       } else {
         await Bun.write(full, norm);
-        console.log(`fmt: fixed ${path}`);
+        console.log(`fmt: fixed ${normPath}`);
         dirty++;
       }
     }

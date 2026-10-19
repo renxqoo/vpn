@@ -24,6 +24,7 @@ let modeState: 'rule' | 'global' | 'direct' = 'rule';
 beforeAll(async () => {
   api = new RestApi({
     tracker,
+    loopbackPort: 0,
     outboundOf: (n) => (n === '选择' ? group : n === 'DIRECT' ? new DirectOutbound() : undefined),
     outboundNames: () => ['选择', 'DIRECT'],
     engine,
@@ -37,6 +38,7 @@ beforeAll(async () => {
   await api.start('127.0.0.1:0');
   apiWithSecret = new RestApi({
     tracker,
+    loopbackPort: 0,
     outboundOf: (n) => (n === '选择' ? group : undefined),
     outboundNames: () => ['选择'],
     engine,
@@ -109,6 +111,7 @@ describe('rest api', () => {
     })();
     const api2 = new RestApi({
       tracker,
+    loopbackPort: 0,
       outboundOf: (n) => (n === 'healthy-node' ? withHealth : undefined),
       outboundNames: () => ['healthy-node'],
       engine,

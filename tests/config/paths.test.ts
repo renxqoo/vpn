@@ -21,7 +21,8 @@ beforeAll(() => {
 });
 afterAll(() => {
   process.env.HOME = realHome;
-  process.env.USERPROFILE = realProfile;
+  if (realProfile !== undefined) process.env.USERPROFILE = realProfile;
+  else delete process.env.USERPROFILE;
   rmSync(tmpHome, { recursive: true, force: true });
 });
 
@@ -29,7 +30,8 @@ describe('cache directory', () => {
   test('lives under ~/.vpn, not cwd', () => {
     const dir = cacheDirectory();
     expect(dir.startsWith(tmpHome)).toBe(true);
-    expect(dir.endsWith('.vpn/cache')).toBe(true);
+    const tail = dir.split(/[\\/]/).slice(-2).join('/');
+    expect(tail).toBe('.vpn/cache');
   });
 });
 

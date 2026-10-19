@@ -17,6 +17,8 @@ const MAX_BODY = 64 * 1024;
 
 export interface ApiDeps {
   tracker: ConnectionTracker;
+  /** 本机回环端口（Host 头校验用） */
+  loopbackPort: number;
   outboundOf(name: string): Outbound | undefined;
   outboundNames(): string[];
   engine: RuleEngine;
@@ -50,6 +52,7 @@ export class RestApi {
         socket: this.handler(),
       });
       this.port = this.server.port;
+      this.deps.loopbackPort = this.port;
       log.info(`api on 127.0.0.1:${this.port}`);
     } catch (e) {
       log.error(`api bind failed on 127.0.0.1:${port}: ${String(e).slice(0, 80)}`);
@@ -100,7 +103,14 @@ export class RestApi {
         st.buf = new Uint8Array(0);
         st.headerEnd = -1;
         st.bodyLen = -1;
-        void handle(socket, text, body);
+        handle(socket, text, body).catch((e: unknown) => {
+          log.error(`api handler error: ${String(e).slice(0, 120)}`);
+          try {
+            socket.end('HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n');
+          } catch (_e2) {
+            /* socket gone */
+          }
+        });
       },
       close() {},
       error() {},
@@ -122,7 +132,7 @@ export class RestApi {
       const bytes = new TextEncoder().encode(payload);
       const head =
         `HTTP/1.1 ${status} ${reason}\r\nContent-Type: application/json\r\n` +
-        `Content-Length: ${bytes.length}\r\n\r\n`;
+        `Content-Length: ${bytes.length}\r\nConnection: close\r\n\r\n`;
       const out = new Uint8Array(head.length + bytes.length);
       out.set(new TextEncoder().encode(head));
       out.set(bytes, head.length);
@@ -138,7 +148,30 @@ export class RestApi {
         return;
       }
       const method = m[1] as string;
-      const path = (m[2] as string).split('?')[0] as string;
+      const rawPath = (m[2] as string).split('?')[0] as string;
+      let path = rawPath;
+      if (rawPath.includes('%')) {
+        try {
+          path = decodeURIComponent(rawPath);
+        } catch (_e) {
+          json(socket, 400, { message: 'malformed percent-encoding' });
+          return;
+        }
+      }
+      // DNS rebinding / 浏览器直连防护：Host 必须是本机回环
+      const hostLine = headerLines.find((h) => h.toLowerCase().startsWith('host:'));
+      const hostValue = hostLine?.slice(5).trim().toLowerCase() ?? '';
+      const loopbackHost = new Set([
+        `127.0.0.1:${deps.loopbackPort}`,
+        `localhost:${deps.loopbackPort}`,
+        '127.0.0.1',
+        'localhost',
+        '[::1]',
+      ]);
+      if (!loopbackHost.has(hostValue)) {
+        json(socket, 403, { message: 'non-local host rejected' });
+        return;
+      }
 
       if (deps.secret) {
         const authLine = headerLines.find((h) => h.toLowerCase().startsWith('authorization:'));
@@ -164,7 +197,7 @@ export class RestApi {
       }
       const pm = /^\/proxies\/(.+)$/.exec(path);
       if (pm) {
-        const name = decodeURIComponent(pm[1] as string);
+        const name = pm[1] as string;
         const outbound = deps.outboundOf(name);
         if (!outbound) {
           json(socket, 404, { message: 'proxy not found' });

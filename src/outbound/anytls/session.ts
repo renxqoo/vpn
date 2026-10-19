@@ -60,6 +60,8 @@ export class AnytlsSession {
   private connected = false;
   private dieReason = '';
   private writeQueue: WriteJob[] = [];
+  private writeQueueBytes = 0;
+  private static readonly MAX_WRITE_QUEUE_BYTES = 4 * 1024 * 1024;
   private writing = false;
   private recvBuf = new Uint8Array(0);
   // 认证后立即 settings + buffering，对齐参考实现：直到首个 SYN 发出才 flush
@@ -117,13 +119,15 @@ export class AnytlsSession {
     this.streams.clear();
     for (const st of streams) st.remoteClosed(reason);
     for (const job of this.writeQueue.splice(0)) job.reject(new Error(`session dead: ${reason}`));
+    this.writeQueueBytes = 0;
     try {
       this.socket?.end();
     } catch (_e) {
       /* already closed */
     }
     this.opts.hooks.onDead();
-    log.debug(`session ${this.seq} dead: ${reason}`);
+    const level = reason === 'local close' ? 'debug' : 'warn';
+    log[level](`session ${this.seq} dead: ${reason}`);
   }
 
   get dieInfo(): string {
@@ -145,8 +149,11 @@ export class AnytlsSession {
       const buffered = this.bufferList;
       this.bufferList = [];
       const [authBytes, ...restFrames] = buffered;
-      this.enqueue([authBytes ?? new Uint8Array(0)], false);
-      this.enqueue([...restFrames, syn], true);
+      const dropped = (e: unknown): void => {
+        log.debug(`first-flight frames dropped on dying session ${this.seq}: ${String(e).slice(0, 60)}`);
+      };
+      this.enqueue([authBytes ?? new Uint8Array(0)], false).catch(dropped);
+      this.enqueue([...restFrames, syn], true).catch(dropped);
     } else {
       this.writeFrames(syn);
     }
@@ -275,11 +282,21 @@ export class AnytlsSession {
 
   /** 控制帧入队（同样走 padding 写路径——参考实现 writeControlFrame 也经 writeConn） */
   private writeFrames(...frames: Uint8Array[]): void {
-    void this.enqueue(frames, true);
+    this.enqueue(frames, true).catch((e: unknown) => {
+      // 会话死亡/写队列溢出时控制帧（SYN/FIN/心跳应答）无法送达：会话已被 die() 终结，
+      // 这里只留痕防止未处理 rejection 击杀进程
+      log.debug(`control frame dropped on dying session ${this.seq}: ${String(e).slice(0, 60)}`);
+    });
   }
 
-  /** 入队；applyPadding=true 时数据帧走 padding 分包（在出队时按序计算） */
+  /** 入队；applyPadding=true 时数据帧走 padding 分包。队列字节超界 = 上游拥塞失控，断会话（与接收方向对称） */
   private async enqueue(chunks: Uint8Array[], applyPadding = false): Promise<void> {
+    const queuedBytes = chunks.reduce((n, b) => n + b.length, 0);
+    if (this.writeQueueBytes + queuedBytes > AnytlsSession.MAX_WRITE_QUEUE_BYTES) {
+      this.die('write queue overflow (upstream stalled)');
+      return Promise.reject(new Error('write queue overflow'));
+    }
+    this.writeQueueBytes += queuedBytes;
     const job: WriteJob & PaddingJob = { bytes: applyPadding ? [] : chunks, resolve() {}, reject() {} };
     if (applyPadding) {
       job.padding = true;
@@ -305,14 +322,20 @@ export class AnytlsSession {
     try {
       while (this.writeQueue.length > 0 && !this.dead) {
         const job = this.writeQueue.shift() as WriteJob & PaddingJob;
+        this.writeQueueBytes -= job.bytes.reduce((n, b) => n + b.length, 0);
+        if (job.src) this.writeQueueBytes -= job.src.reduce((n, b) => n + b.length, 0);
+        let failed = false;
         try {
           if (job.padding === true && job.src) {
             await this.writeWithPadding(job.src);
           } else {
             await this.writeSocket(job.bytes.flat());
           }
+        } catch (e) {
+          failed = true;
+          job.reject(e instanceof Error ? e : new Error(String(e)));
         } finally {
-          job.resolve();
+          if (!failed) job.resolve();
         }
       }
     } finally {
@@ -322,7 +345,11 @@ export class AnytlsSession {
 
   private writeSocket(bytes: Uint8Array[]): Promise<void> {
     const sock = this.socket;
-    if (!sock || this.dead) return Promise.resolve();
+    if (!sock || this.dead) {
+      const total = bytes.reduce((n, b) => n + b.length, 0);
+      if (total === 0) return Promise.resolve();
+      return Promise.reject(new Error(`session dead: ${this.dieReason}`));
+    }
     const total = bytes.reduce((n, b) => n + b.length, 0);
     if (total === 0) return Promise.resolve();
     const merged = new Uint8Array(total);

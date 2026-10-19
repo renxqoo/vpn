@@ -43,7 +43,9 @@ export async function runStart(argv: string[]): Promise<void> {
   }
 
   const runtime = await buildRuntimeConfig({ files, subscriptionYaml, cli: args });
-  setLogLevel(runtime.config.logLevel === 'silent' ? 'warn' : 'info');
+  const raw = runtime.config.logLevel;
+  const allowed = new Set(['debug', 'info', 'warn', 'error', 'silent']);
+  setLogLevel(allowed.has(raw as never) ? (raw as 'info') : 'info');
 
   if (runtime.needsSubscriptionGuide) {
     log.warn('订阅地址为空（.env 与 ~/.vpn/config.yaml 均未配置）——以直连模式启动');
@@ -54,6 +56,10 @@ export async function runStart(argv: string[]): Promise<void> {
   await app.start();
   const modeLabel = { rule: '规则', global: '全局', direct: '直连' }[app.currentMode()] ?? app.currentMode();
   log.info(`配置来源: ${runtime.sourceLabel}；模式: ${modeLabel}`);
+
+  process.on('unhandledRejection', (reason: unknown) => {
+    log.error(`unhandled rejection: ${String(reason).slice(0, 200)}`);
+  });
 
   let stopping = false;
   const shutdown = async () => {

@@ -10,6 +10,7 @@ import { MeteredPipe } from '../core/meter.ts';
 
 const log = logger('inbound:http');
 const HANDSHAKE_TIMEOUT = 30_000;
+const TUNNEL_IDLE_TIMEOUT = 120_000;
 const MAX_HEADER = 256 * 1024;
 
 function withIdleTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -22,6 +23,8 @@ function withIdleTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 interface ClientState {
   buf: Uint8Array;
   tunnel: { upstream: Conn & MeteredPipe } | null;
+  forwardUpstream: MeteredPipe | null;
+  forwardedDone: boolean;
   connecting: boolean;
   connId: string;
 }
@@ -90,6 +93,8 @@ export class HttpInbound {
         const st: ClientState = {
           buf: new Uint8Array(0),
           tunnel: null,
+          forwardUpstream: null,
+          forwardedDone: false,
           connecting: false,
           connId: crypto.randomUUID(),
         };
@@ -124,11 +129,16 @@ export class HttpInbound {
         const headerText = new TextDecoder().decode(st.buf.subarray(0, headerEnd));
         const rest = st.buf.subarray(headerEnd);
         st.buf = new Uint8Array(0);
-        handle(socket, st, headerText, rest).catch(() => socket.end('HTTP/1.1 400 Bad Request\r\n\r\n'));
+        handle(socket, st, headerText, rest).catch((e: unknown) => {
+          log.warn(`http inbound handler error: ${String(e).slice(0, 100)}`);
+          socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+        });
       },
       close(socket) {
         const st = socket.data as unknown as ClientState;
         st.tunnel?.upstream.close();
+        st.forwardUpstream = null;
+        st.forwardedDone = true;
         onClose?.(st.connId);
       },
       error() {},
@@ -219,7 +229,9 @@ export class HttpInbound {
       }
       const addr: SocksAddr = { type: 'fqdn', host, port };
       void addr;
+      clearHandshakeTimer(socket);
       const metered = new MeteredPipe(upstream);
+      st.forwardUpstream = metered;
       onOpen?.({
         id: st.connId,
         host,
@@ -234,15 +246,58 @@ export class HttpInbound {
       body.set(rest, payloadBytes.length);
       try {
         await metered.write(body);
-        // 单请求语义：转发响应直到上游 EOF 或空闲超时（上游 keep-alive 不关时防挂死）
-        for (;;) {
-          const chunk = await withIdleTimeout(metered.read(65536), 30000);
-          socket.write(chunk);
-        }
+        await pumpForwardedResponse(socket, metered);
       } catch (_e) {
         socket.end();
-        onClose?.(st.connId);
+      } finally {
+        upstream.close();
+        st.forwardUpstream = null;
+        if (st.forwardedDone !== true) {
+          st.forwardedDone = true;
+          onClose?.(st.connId);
+        }
       }
+    }
+
+    /** 单请求转发：Content-Length 已知则精确读完即收（上游 keep-alive 不必等）；未知则读到 EOF/空闲超时 */
+    async function pumpForwardedResponse(socket: Bun.Socket<undefined>, metered: MeteredPipe): Promise<void> {
+      let remaining: number | null = null;
+      let headerBuf = new Uint8Array(0);
+      let headerDone = false;
+      for (;;) {
+        const chunk = await withIdleTimeout(metered.read(65536), 30000);
+        socket.write(chunk);
+        if (!headerDone) {
+          const merged = new Uint8Array(headerBuf.length + chunk.length);
+          merged.set(headerBuf);
+          merged.set(chunk, headerBuf.length);
+          headerBuf = merged;
+          const idx = indexOfCrlfCrlf(headerBuf);
+          if (idx >= 0) {
+            headerDone = true;
+            const head = new TextDecoder().decode(headerBuf.subarray(0, idx));
+            const cl = /content-length:\s*(\d+)/i.exec(head);
+            if (cl) {
+              const total = Number(cl[1]);
+              const bodySeen = headerBuf.length - idx;
+              remaining = Math.max(total - bodySeen, 0);
+              if (remaining === 0) return;
+            }
+          } else if (headerBuf.length > MAX_HEADER) {
+            return; // 异常超大响应头：放弃解析，靠 EOF/超时收尾
+          }
+        } else if (remaining !== null) {
+          remaining -= chunk.length;
+          if (remaining <= 0) return;
+        }
+      }
+    }
+
+    function indexOfCrlfCrlf(buf: Uint8Array): number {
+      for (let i = 0; i + 3 < buf.length; i++) {
+        if (buf[i] === 13 && buf[i + 1] === 10 && buf[i + 2] === 13 && buf[i + 3] === 10) return i + 4;
+      }
+      return -1;
     }
 
     async function tunnel(
@@ -297,17 +352,17 @@ export class HttpInbound {
       initial = initialAll;
       if (initial.length > 0) {
         try {
-          await upstream.write(initial);
+          await metered.write(initial);
         } catch (_e) {
           socket.end();
           return;
         }
       }
-      // 上游 → 客户端（经 meter 计量）
+      // 上游 → 客户端（经 meter 计量；空闲超时防静默上游钉死会话与台账）
       void (async () => {
         try {
           for (;;) {
-            const chunk = await st.tunnel!.upstream.read(65536);
+            const chunk = await withIdleTimeout(st.tunnel!.upstream.read(65536), TUNNEL_IDLE_TIMEOUT);
             socket.write(chunk);
           }
         } catch (_e) {
