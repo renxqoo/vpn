@@ -12,7 +12,8 @@ export async function runConfigCommand(sub: string[]): Promise<void> {
   const cmd = sub[0];
   if (cmd === 'set-subscription') {
     const url = sub[1];
-    if (!url || !/^https?:\/\//.test(url)) {
+    if (!url || !/^https:\/\//.test(url)) {
+      console.error('订阅地址必须是 https://（明文订阅可被中间人整体替换，已拒绝）');
       console.error('用法: bun-clash config set-subscription <https://...>');
       process.exit(1);
     }

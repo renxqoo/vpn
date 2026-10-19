@@ -3,7 +3,8 @@
  * 文本格式自动识别（payload: 头存在 = yaml 列表，否则每行一条）。
  */
 
-import { join } from 'node:path';
+import { chmodSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import { logger } from '../core/log.ts';
 import { parseYaml, asMap, asSeq, asStr, type YamlValue } from '../config/yaml.ts';
 import type { RuleProviderConfig } from '../config/clash.ts';
@@ -38,6 +39,18 @@ export class RuleProviders {
     this.store = store;
   }
 
+  /** 刷新监听：引擎注册回调，每轮刷新完成后收到实时 runtime Map（同一实例，后续更新直接可见） */
+  subscribe(fn: (providers: Map<string, { resolved: ResolvedRuleSet }>) => void): void {
+    this.subscribers.push(fn);
+  }
+
+  /** 实时视图：返回 runtime Map 本体（引擎持有后 set/delete 直接生效） */
+  liveView(): Map<string, { resolved: ResolvedRuleSet }> {
+    return this.runtime;
+  }
+
+  private subscribers: ((p: Map<string, { resolved: ResolvedRuleSet }>) => void)[] = [];
+
   /** 启动时加载全部：并行拉取（每个 15s 超时；缓存可用；全失败空集 + 警告，不阻塞启动） */
   async loadAll(): Promise<void> {
     await Promise.all([...this.configs.entries()].map(([name, cfg]) => this.loadOne(name, cfg)));
@@ -67,7 +80,9 @@ export class RuleProviders {
         text = await withTimeout(this.store.fetch(cfg.url), 15000);
         await this.persistCache(name, text);
       } catch (e) {
-        if (!isRefresh) log.warn(`provider '${name}': fetch failed (${String(e).slice(0, 60)}), trying cache`);
+        log.warn(
+          `provider '${name}' fetch failed (${String(e).slice(0, 60)})${isRefresh ? ' [refresh]' : ''}, trying cache`,
+        );
       }
     }
     if (text === null && cfg.path) {
@@ -84,6 +99,7 @@ export class RuleProviders {
     try {
       const resolved = parseProviderPayload(text, cfg.behavior);
       this.runtime.set(name, { resolved, loadedAt: this.store.now() });
+      for (const fn of this.subscribers) fn(this.runtime);
     } catch (e) {
       log.warn(`provider '${name}': parse failed (${String(e).slice(0, 80)})`);
       if (!this.runtime.has(name)) this.runtime.set(name, { resolved: {}, loadedAt: this.store.now() });
@@ -93,13 +109,18 @@ export class RuleProviders {
   private cachePath(name: string): string | null {
     const dir = this.store.cacheDir();
     if (!dir) return null;
-    return join(dir, `ruleset-${name}.txt`);
+    return safeProviderCachePath(dir, name);
   }
 
   private async persistCache(name: string, text: string): Promise<void> {
     const p = this.cachePath(name);
     if (!p) return;
     await Bun.write(p, text).catch(() => {});
+    try {
+      chmodSync(p, 0o600);
+    } catch (_e) {
+      /* noop */
+    }
   }
 
   private async readCache(name: string): Promise<string | null> {
@@ -111,9 +132,7 @@ export class RuleProviders {
   }
 
   getRuntime(): Map<string, { resolved: ResolvedRuleSet }> {
-    const out = new Map<string, { resolved: ResolvedRuleSet }>();
-    for (const [k, v] of this.runtime) out.set(k, { resolved: v.resolved });
-    return out;
+    return this.runtime;
   }
 
   stop(): void {
@@ -180,6 +199,15 @@ export function parseProviderPayload(text: string, behavior: RuleProviderConfig[
     }
   }
   return { classical };
+}
+
+/** provider 名 → 缓存文件路径；含路径分隔/穿越的名称拒绝（防订阅注入写任意路径） */
+export function safeProviderCachePath(dir: string, name: string): string | null {
+  if (!name || !/^[A-Za-z0-9._-]+$/.test(name)) return null;
+  if (name.includes('..')) return null;
+  const p = join(dir, `ruleset-${name}.txt`);
+  if (resolve(p) !== resolve(dir) + sep + `ruleset-${name}.txt`) return null;
+  return p;
 }
 
 function extractEntries(text: string): string[] {

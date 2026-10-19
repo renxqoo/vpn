@@ -32,7 +32,10 @@ export function md5Hex(input: string | Uint8Array): string {
   return hasher.digest('hex');
 }
 
-/** 解析 scheme；缺 stop 或空 → null（对齐 Go：len==0 或 stop 解析失败 → nil） */
+/** 单个 padding 帧数据的协议上界（u16 长度字段） */
+export const MAX_PADDING_CHUNK = 0xffff;
+
+/** 解析 scheme；缺 stop 或空 → null；任一尺寸超出协议界 → null（服务端可控输入的防护） */
 export function parsePaddingScheme(raw: string): PaddingFactory | null {
   const scheme: Record<string, string> = {};
   for (const line of raw.split('\n')) {
@@ -42,6 +45,17 @@ export function parsePaddingScheme(raw: string): PaddingFactory | null {
   if (Object.keys(scheme).length === 0) return null;
   const stop = Number(scheme['stop']);
   if (!Number.isInteger(stop) || stop < 0) return null;
+  for (const def of Object.values(scheme)) {
+    for (const part of def.split(',')) {
+      if (part === 'c') continue;
+      const dash = part.indexOf('-');
+      if (dash < 0) continue;
+      const min = Number(part.slice(0, dash));
+      const max = Number(part.slice(dash + 1));
+      if (!Number.isInteger(min) || !Number.isInteger(max)) return null;
+      if (min < 0 || max < 0 || min > MAX_PADDING_CHUNK || max > MAX_PADDING_CHUNK) return null;
+    }
+  }
   return { rawScheme: raw, md5: '', stop, scheme };
 }
 
@@ -91,6 +105,7 @@ export interface ChunkPlan {
 }
 
 export function planChunks(sizes: number[], totalLen: number): ChunkPlan {
+  sizes = sizes.map((n) => (n > MAX_PADDING_CHUNK ? MAX_PADDING_CHUNK : n));
   const steps: ChunkPlan['steps'] = [];
   let remaining = totalLen;
   let stoppedAtCheck = false;
@@ -119,8 +134,11 @@ export function planChunks(sizes: number[], totalLen: number): ChunkPlan {
   return { steps, stoppedAtCheck, remainder: remaining };
 }
 
-/** 构造 cmdWaste 帧字节（服务端/客户端写路径共用） */
+/** 构造 cmdWaste 帧字节；len 超出协议 u16 界即抛（调用侧 planChunks 已钳制） */
 export function makeWasteFrame(len: number): Uint8Array {
+  if (len < 0 || len > MAX_PADDING_CHUNK) {
+    throw new Error(`waste frame length out of range: ${len}`);
+  }
   const out = new Uint8Array(HEADER_SIZE + len);
   out[0] = CMD.waste;
   const dv = new DataView(out.buffer);

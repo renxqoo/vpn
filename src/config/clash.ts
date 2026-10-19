@@ -197,7 +197,7 @@ export function parseClashConfig(text: string): ClashConfig {
         format: formatRaw === 'text' ? 'text' : 'yaml',
         url: optStr(p['url']),
         path: optStr(p['path']),
-        interval: optNum(p['interval']) ?? 86400,
+        interval: Math.max(optNum(p['interval']) ?? 86400, 60),
       });
     }
   }

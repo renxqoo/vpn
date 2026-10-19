@@ -12,6 +12,7 @@ import { AnytlsClient } from './outbound/anytls/client.ts';
 import { RuleEngine } from './rules/index.ts';
 import { RuleProviders } from './rules/providers.ts';
 import { loadGeoip } from './rules/geoip.ts';
+import { readTextBounded } from './core/fetchbounded.ts';
 import { buildGroup } from './rules/groups.ts';
 import { SelectGroup } from './rules/groups.ts';
 import { HttpInbound } from './inbound/http.ts';
@@ -119,9 +120,12 @@ export class App {
     this.providers = new RuleProviders(cfg.ruleProviders, {
       cacheDir: () => cache,
       fetch: async (u: string) => {
-        const r = await fetch(u, { headers: { 'user-agent': 'clash-verge/v2.0.0' } });
+        const r = await fetch(u, {
+          headers: { 'user-agent': 'clash-verge/v2.0.0' },
+          signal: AbortSignal.timeout(15_000),
+        });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.text();
+        return readTextBounded(r);
       },
       readFile: async (p: string) => {
         const f = Bun.file(p);
@@ -129,19 +133,20 @@ export class App {
       },
       now: () => Date.now(),
     });
-    // providers 后台加载（不阻塞启动；完成后热替换引擎引用）
-    void this.providers.loadAll().then(() => {
-      if (this.engine) {
-        // 重建引擎以吃到新 providers（规则链不变，只换 provider runtime）
-        (this.engine as unknown as { providers: Map<string, unknown> }).providers = this.providers!.getRuntime();
-        log.info('rule providers loaded');
+    // providers 后台加载（不阻塞启动；引擎持有 live Map，每轮刷新后回调确认）
+    this.providers.subscribe(() => {
+      if (this.providers !== null && this.providers.liveView().size > 0) {
+        log.info(`rule providers available: ${this.providers.liveView().size}`);
       }
+    });
+    void this.providers.loadAll().then(() => {
+      log.info('rule providers loaded');
     });
     const geoip = await loadGeoip(cfg.geoipUrl, join(cache, 'geoip.mmdb'));
     const finalTarget = cfg.rules.filter((r) => r.type === 'MATCH').length > 0 ? '' : 'DIRECT';
     this.engine = new RuleEngine({
       rules: cfg.rules,
-      providers: this.providers.getRuntime(),
+      providers: this.providers.liveView(),
       geoip: geoip ? (ip: string) => geoip.country(ip) : null,
       final: finalTarget === '' ? 'DIRECT' : finalTarget,
     });
@@ -196,6 +201,7 @@ export class App {
     // API
     this.api = new RestApi({
       tracker: this.tracker,
+      loopbackPort: 0,
       outboundOf: (n) => this.outbounds.get(n),
       outboundNames: () => [...this.outbounds.keys()],
       engine: this.engine,

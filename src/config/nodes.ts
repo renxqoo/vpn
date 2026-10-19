@@ -112,12 +112,11 @@ export async function runNodesCommand(
   }
   const groups = groupByRegion(nodes);
   const current = await readSelectedNode();
+  const apiPort = apiPortArg ?? src.apiPort ?? 9090;
   if (directPick !== undefined) {
-    const apiPort = apiPortArg ?? 9090;
     await applyPick(directPick, apiPort, nodes);
     return;
   }
-  const apiPort = apiPortArg ?? 9090;
   const healthByNode = await fetchNodeHealth(apiPort);
 
   p.intro('bun-clash 节点选择');

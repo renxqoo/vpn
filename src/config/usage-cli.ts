@@ -14,12 +14,16 @@ export async function runUsageCommand(): Promise<void> {
     process.exit(1);
   }
   p.intro('bun-clash 订阅用量');
-  const usage = await fetchUserinfo(src.subscriptionUrl);
-  if (!usage) {
+  const result = await fetchUserinfo(src.subscriptionUrl);
+  if (result.kind === 'network-error') {
+    p.cancel(`订阅拉取失败（网络问题，非服务端能力缺失）：${result.error}`);
+    process.exit(1);
+  }
+  if (result.kind === 'unsupported') {
     p.cancel('订阅服务端未返回 subscription-userinfo 头（可能不支持用量查询）');
     process.exit(1);
   }
-  const lines = renderUsage(usage, 'plain');
+  const lines = renderUsage(result.usage, 'plain');
   for (const line of lines) {
     p.log.message(line);
   }

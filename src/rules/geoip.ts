@@ -4,6 +4,7 @@
  */
 
 import { logger } from '../core/log.ts';
+import { readBodyBounded } from '../core/fetchbounded.ts';
 
 const log = logger('rules:geoip');
 
@@ -326,7 +327,7 @@ export async function loadGeoip(url: string | undefined, cachePath: string | nul
     try {
       const r = await fetch(url, { signal: AbortSignal.timeout(30000) });
       if (r.ok) {
-        buf = new Uint8Array(await r.arrayBuffer());
+        buf = await readBodyBounded(r);
         if (cachePath) await Bun.write(cachePath, buf).catch(() => {});
         log.info(`geoip mmdb downloaded (${buf.length} bytes)`);
       } else {

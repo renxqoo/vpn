@@ -43,7 +43,9 @@ export async function runStart(argv: string[]): Promise<void> {
   }
 
   const runtime = await buildRuntimeConfig({ files, subscriptionYaml, cli: args });
-  setLogLevel(runtime.config.logLevel === 'silent' ? 'warn' : 'info');
+  const raw = runtime.config.logLevel;
+  const allowed = new Set(['debug', 'info', 'warn', 'error']);
+  setLogLevel(allowed.has(raw as never) ? (raw as 'info') : 'info');
 
   if (runtime.needsSubscriptionGuide) {
     log.warn('订阅地址为空（.env 与 ~/.vpn/config.yaml 均未配置）——以直连模式启动');

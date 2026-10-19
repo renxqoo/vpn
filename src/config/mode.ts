@@ -4,6 +4,7 @@
  */
 
 import * as p from '@clack/prompts';
+import { collectFileInputs, mergeSource } from './settings.ts';
 
 export type ModeName = 'rule' | 'global' | 'direct';
 
@@ -61,13 +62,15 @@ export async function hotSwitchMode(apiPort: number, mode: ModeName): Promise<'s
 
 export async function runModeCommand(apiPortArg?: number, directSet?: string): Promise<void> {
   const current = await readMode();
+  const settings = mergeSource(await collectFileInputs());
+  const apiPort = apiPortArg ?? settings.apiPort ?? 9090;
   if (directSet !== undefined) {
     if (directSet !== 'rule' && directSet !== 'global' && directSet !== 'direct') {
       console.error(`无效模式: ${directSet}（可选 rule | global | direct）`);
       process.exit(1);
     }
     const path = await writeMode(directSet);
-    const hot = await hotSwitchMode(apiPortArg ?? 9090, directSet);
+    const hot = await hotSwitchMode(apiPort, directSet);
     const note =
       hot === 'switched'
         ? '已写入配置并热切换生效'
@@ -92,12 +95,12 @@ export async function runModeCommand(apiPortArg?: number, directSet?: string): P
   }
   const mode = selected as ModeName;
   if (mode === current) {
-    const hot = await hotSwitchMode(apiPortArg ?? 9090, mode);
+    const hot = await hotSwitchMode(apiPort, mode);
     p.outro(`模式未变（${mode}）${hot === 'switched' ? '，已确认运行中内核同步' : ''}`);
     return;
   }
   const path = await writeMode(mode);
-  const hot = await hotSwitchMode(apiPortArg ?? 9090, mode);
+  const hot = await hotSwitchMode(apiPort, mode);
   const note =
     hot === 'switched'
       ? '已写入配置并热切换生效（无需重启）'

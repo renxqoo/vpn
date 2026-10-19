@@ -82,9 +82,17 @@ export function renderUsage(u: SubscriptionUsage, style: 'plain' | 'clack' = 'pl
 }
 
 /** 拉订阅头（不动 body——HEAD 不一定被支持，GET 但不读全 body 前取消） */
-export async function fetchUserinfo(url: string): Promise<SubscriptionUsage | null> {
+export type UserinfoResult =
+  | { kind: 'ok'; usage: SubscriptionUsage }
+  | { kind: 'unsupported' }
+  | { kind: 'network-error'; error: string };
+
+export async function fetchUserinfo(url: string): Promise<UserinfoResult> {
   try {
-    const r = await fetch(url, { headers: { 'user-agent': 'clash-verge/v2.0.0' } });
+    const r = await fetch(url, {
+      headers: { 'user-agent': 'clash-verge/v2.0.0' },
+      signal: AbortSignal.timeout(15_000),
+    });
     const header = r.headers.get('subscription-userinfo');
     // body 不需要：取消以省流量
     try {
@@ -93,10 +101,11 @@ export async function fetchUserinfo(url: string): Promise<SubscriptionUsage | nu
       /* noop */
     }
     const parsed = parseUserinfo(header);
-    if (!parsed) log.warn('subscription-userinfo header missing or malformed');
-    return parsed;
+    if (!parsed) return { kind: 'unsupported' };
+    return { kind: 'ok', usage: parsed };
   } catch (e) {
-    log.warn(`fetch subscription failed: ${String(e).slice(0, 80)}`);
-    return null;
+    const error = String(e).slice(0, 120);
+    log.warn(`fetch subscription failed: ${error}`);
+    return { kind: 'network-error', error };
   }
 }

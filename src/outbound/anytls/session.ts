@@ -60,6 +60,8 @@ export class AnytlsSession {
   private connected = false;
   private dieReason = '';
   private writeQueue: WriteJob[] = [];
+  private writeQueueBytes = 0;
+  private static readonly MAX_WRITE_QUEUE_BYTES = 4 * 1024 * 1024;
   private writing = false;
   private recvBuf = new Uint8Array(0);
   // 认证后立即 settings + buffering，对齐参考实现：直到首个 SYN 发出才 flush
@@ -117,13 +119,14 @@ export class AnytlsSession {
     this.streams.clear();
     for (const st of streams) st.remoteClosed(reason);
     for (const job of this.writeQueue.splice(0)) job.reject(new Error(`session dead: ${reason}`));
+    this.writeQueueBytes = 0;
     try {
       this.socket?.end();
     } catch (_e) {
       /* already closed */
     }
     this.opts.hooks.onDead();
-    log.debug(`session ${this.seq} dead: ${reason}`);
+    log.warn(`session ${this.seq} dead: ${reason}`);
   }
 
   get dieInfo(): string {
@@ -278,8 +281,14 @@ export class AnytlsSession {
     void this.enqueue(frames, true);
   }
 
-  /** 入队；applyPadding=true 时数据帧走 padding 分包（在出队时按序计算） */
+  /** 入队；applyPadding=true 时数据帧走 padding 分包。队列字节超界 = 上游拥塞失控，断会话（与接收方向对称） */
   private async enqueue(chunks: Uint8Array[], applyPadding = false): Promise<void> {
+    const queuedBytes = chunks.reduce((n, b) => n + b.length, 0);
+    if (this.writeQueueBytes + queuedBytes > AnytlsSession.MAX_WRITE_QUEUE_BYTES) {
+      this.die('write queue overflow (upstream stalled)');
+      return Promise.reject(new Error('write queue overflow'));
+    }
+    this.writeQueueBytes += queuedBytes;
     const job: WriteJob & PaddingJob = { bytes: applyPadding ? [] : chunks, resolve() {}, reject() {} };
     if (applyPadding) {
       job.padding = true;
@@ -305,6 +314,8 @@ export class AnytlsSession {
     try {
       while (this.writeQueue.length > 0 && !this.dead) {
         const job = this.writeQueue.shift() as WriteJob & PaddingJob;
+        this.writeQueueBytes -= job.bytes.reduce((n, b) => n + b.length, 0);
+        if (job.src) this.writeQueueBytes -= job.src.reduce((n, b) => n + b.length, 0);
         try {
           if (job.padding === true && job.src) {
             await this.writeWithPadding(job.src);

@@ -13,6 +13,7 @@ export interface FileInputs {
 export interface RuntimeSettings {
   subscriptionUrl?: string;
   selectedNode?: string;
+  secret?: string;
   mode: 'rule' | 'global' | 'direct';
   httpPort?: number;
   socksPort?: number;
@@ -40,10 +41,12 @@ export function parseHomeKeys(text: string): RuntimeSettings {
   const mode = modeRaw === 'global' || modeRaw === 'direct' ? modeRaw : 'rule';
   const port = Number(firstGroup(PORT_RE.exec(text)));
   const socks = Number(firstGroup(SOCKS_PORT_RE.exec(text)));
+  const secret = firstGroup(/^secret:\s*(?:'([^'\n]+)'|([^\n]+?))?\s*$/m.exec(text)) ?? '';
   return {
     subscriptionUrl: sub,
     selectedNode,
     mode,
+    secret,
     httpPort: Number.isInteger(port) && port > 0 ? port : undefined,
     socksPort: Number.isInteger(socks) && socks > 0 ? socks : undefined,
     apiPort: undefined,
@@ -119,7 +122,7 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
       mode: 'rule',
       logLevel: 'info',
       apiAddr: '127.0.0.1:9090',
-      apiSecret: '',
+      apiSecret: settings.secret ?? '',
       proxies: [],
       groups: [],
       rules: DIRECT_FALLBACK_RULES,
@@ -137,6 +140,7 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
     ...config,
     httpPort: overrides.httpPort ?? config.httpPort,
     socksPort: overrides.socksPort ?? config.socksPort,
+    apiSecret: settings.secret !== undefined && settings.secret !== '' ? settings.secret : config.apiSecret,
   };
 
   if (settings.selectedNode) {

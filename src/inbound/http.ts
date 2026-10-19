@@ -124,7 +124,10 @@ export class HttpInbound {
         const headerText = new TextDecoder().decode(st.buf.subarray(0, headerEnd));
         const rest = st.buf.subarray(headerEnd);
         st.buf = new Uint8Array(0);
-        handle(socket, st, headerText, rest).catch(() => socket.end('HTTP/1.1 400 Bad Request\r\n\r\n'));
+        handle(socket, st, headerText, rest).catch((e: unknown) => {
+          log.warn(`http inbound handler error: ${String(e).slice(0, 100)}`);
+          socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+        });
       },
       close(socket) {
         const st = socket.data as unknown as ClientState;
@@ -219,6 +222,7 @@ export class HttpInbound {
       }
       const addr: SocksAddr = { type: 'fqdn', host, port };
       void addr;
+      clearHandshakeTimer(socket);
       const metered = new MeteredPipe(upstream);
       onOpen?.({
         id: st.connId,

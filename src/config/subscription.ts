@@ -2,6 +2,8 @@
 
 import { join } from 'node:path';
 import { logger } from '../core/log.ts';
+import { readTextBounded } from '../core/fetchbounded.ts';
+import { chmodSync } from 'node:fs';
 
 const log = logger('config:subscription');
 
@@ -15,6 +17,11 @@ export async function loadSubscription(url: string, store: SubscriptionStore): P
     const text = await store.fetch(url);
     if (store.cachePath) {
       await Bun.write(store.cachePath, text).catch(() => {});
+      try {
+        chmodSync(store.cachePath, 0o600);
+      } catch (_e) {
+        /* noop */
+      }
     }
     log.info(`subscription fetched (${text.length} bytes)`);
     return text;
@@ -37,9 +44,12 @@ export function defaultStore(cacheDir: string): SubscriptionStore {
   return {
     cachePath: join(cacheDir, 'sub.yaml'),
     async fetch(u: string): Promise<string> {
-      const r = await fetch(u, { headers: { 'user-agent': 'clash-verge/v2.0.0' } });
+      const r = await fetch(u, {
+        headers: { 'user-agent': 'clash-verge/v2.0.0' },
+        signal: AbortSignal.timeout(30_000),
+      });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.text();
+      return readTextBounded(r);
     },
   };
 }

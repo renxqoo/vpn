@@ -9,6 +9,26 @@ import { DEFAULT_CONFIG_YAML } from './defaults.ts';
 
 const log = logger('config:paths');
 
+function writePrivate(path: string, data: string): Promise<void> {
+  return Bun.write(path, data, { createPath: true }).then(() => {
+    try {
+      chmodSync(path, 0o600);
+    } catch (_e) {
+      /* 平台不支持时保持默认 */
+    }
+  });
+}
+
+function privateDir(dir: string): void {
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    chmodSync(dir, 0o700);
+  } catch (_e) {
+    /* noop */
+  }
+}
+
+import { chmodSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -65,11 +85,12 @@ export async function readEnvOverrides(): Promise<EnvOverrides | null> {
 
 /** 家目录配置：不存在则生成（空订阅） */
 export async function ensureHomeConfig(): Promise<string> {
+  privateDir(HOME_CONFIG_DIR());
   const path = HOME_CONFIG_PATH();
   const f = Bun.file(path);
   if (!(await f.exists())) {
-    await Bun.write(path, DEFAULT_CONFIG_YAML, { createPath: true });
-    log.info(`config created at ${path} (empty subscription — run: bun run config set-subscription <URL>)`);
+    await writePrivate(path, DEFAULT_CONFIG_YAML);
+    log.info(`config created at ${path} (empty subscription — run: bun-clash config set-subscription <URL>)`);
   }
   return path;
 }
@@ -83,6 +104,7 @@ export function extractSubscriptionUrl(text: string): { url?: string; yaml: stri
 
 /** 把订阅地址写入家目录配置（保留其余行） */
 export async function setSubscription(url: string): Promise<string> {
+  privateDir(HOME_CONFIG_DIR());
   const path = HOME_CONFIG_PATH();
   const f = Bun.file(path);
   let text = DEFAULT_CONFIG_YAML;
@@ -94,6 +116,6 @@ export async function setSubscription(url: string): Promise<string> {
   } else {
     text = `subscription-url: '${url}'\n${text}`;
   }
-  await Bun.write(path, text, { createPath: true });
+  await writePrivate(path, text);
   return path;
 }
