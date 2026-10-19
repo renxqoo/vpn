@@ -178,7 +178,7 @@ src/
   config/
     yaml.ts            YAML 子集解析器（纯函数，错误带行号）
     clash.ts           Clash 配置模型 + 解析/校验（未知键警告、节点可用性标记）
-    subscription.ts    订阅拉取 + 缓存（fetch with UA clash-verge/v2.0.0）
+    subscription.ts    订阅拉取 + 缓存（fetch with UA mihomo；部分服务拒绝旧版 Clash Verge 标识）
     clash.ts 内      节点字段标准化
   rules/
     index.ts           规则编译与匹配引擎（规则链 + RULE-SET 引用解析 + no-resolve）

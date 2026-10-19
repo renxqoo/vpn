@@ -4,6 +4,7 @@
  */
 
 import { logger } from '../core/log.ts';
+import { CLASH_USER_AGENT } from './subscription.ts';
 
 const log = logger('sub:usage');
 
@@ -90,7 +91,7 @@ export type UserinfoResult =
 export async function fetchUserinfo(url: string): Promise<UserinfoResult> {
   try {
     const r = await fetch(url, {
-      headers: { 'user-agent': 'clash-verge/v2.0.0' },
+      headers: { 'user-agent': CLASH_USER_AGENT },
       signal: AbortSignal.timeout(15_000),
     });
     const header = r.headers.get('subscription-userinfo');
@@ -100,6 +101,7 @@ export async function fetchUserinfo(url: string): Promise<UserinfoResult> {
     } catch (_e) {
       /* noop */
     }
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const parsed = parseUserinfo(header);
     if (!parsed) return { kind: 'unsupported' };
     return { kind: 'ok', usage: parsed };

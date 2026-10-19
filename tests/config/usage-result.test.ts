@@ -19,6 +19,20 @@ describe('fetchUserinfo result discrimination', () => {
       server.stop(true);
     }
   });
+  test('HTTP rejection → network-error with status, not unsupported', async () => {
+    const server = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch: () => new Response('PLEASE UPGRADE CLIENT', { status: 403 }),
+    });
+    try {
+      const r = await fetchUserinfo(`http://127.0.0.1:${server.port}/sub`);
+      expect(r.kind).toBe('network-error');
+      if (r.kind === 'network-error') expect(r.error).toContain('HTTP 403');
+    } finally {
+      server.stop(true);
+    }
+  });
   test('local server with header → ok + parsed', async () => {
     const server = Bun.serve({
       hostname: '127.0.0.1',

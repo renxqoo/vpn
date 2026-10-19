@@ -5,7 +5,7 @@
 import { join } from 'node:path';
 import { logger } from './core/log.ts';
 import { parseClashConfig, type ClashConfig } from './config/clash.ts';
-import { loadSubscription } from './config/subscription.ts';
+import { CLASH_USER_AGENT, loadSubscription } from './config/subscription.ts';
 import { DirectOutbound } from './outbound/direct.ts';
 import { AnytlsOutbound } from './outbound/anytls/index.ts';
 import { AnytlsClient } from './outbound/anytls/client.ts';
@@ -135,7 +135,7 @@ export class App {
       cacheDir: () => cache,
       fetch: async (u: string) => {
         const r = await fetch(u, {
-          headers: { 'user-agent': 'clash-verge/v2.0.0' },
+          headers: { 'user-agent': CLASH_USER_AGENT },
           signal: AbortSignal.timeout(15_000),
         });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
