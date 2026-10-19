@@ -33,7 +33,7 @@ describe('platform-agnostic paths', () => {
 
   test('all derived paths are joined (no manual slash concat)', () => {
     const dir = HOME_CONFIG_DIR();
-    expect(dir.endsWith(join('.vpn', '..')) || dir.includes('.vpn')).toBe(true);
+    expect(dir.split(/[\\/]/)).toContain('.vpn');
     expect(HOME_CONFIG_PATH().startsWith(dir)).toBe(true);
     expect(cacheDirectory().startsWith(dir)).toBe(true);
   });
