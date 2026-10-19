@@ -84,20 +84,19 @@ export class App {
 
     // 组（后声明的组可引用先声明的组与节点；同名组幂等）
     const groupOutbounds = new Map<string, Outbound>();
-    for (let i = 0; i < cfg.groups.length; i++) {
+    for (let pass = 0; pass < cfg.groups.length; pass++) {
       for (const g of cfg.groups) {
         if (groupOutbounds.has(g.name)) continue;
         const members = new Map<string, Outbound>();
-        let ok = true;
         for (const m of g.proxies) {
           const o = this.outbounds.get(m) ?? groupOutbounds.get(m);
-          if (!o) {
-            ok = false;
-            break;
-          }
-          members.set(m, o);
+          if (o) members.set(m, o);
         }
-        if (!ok) continue;
+        if (members.size === 0) continue; // 依赖尚不可用（前向组引用），下一轮再试
+        const missing = g.proxies.filter((m) => !members.has(m));
+        if (missing.length > 0) {
+          log.warn(`group '${g.name}': ${missing.length} member(s) unavailable, skipped: ${missing.join(', ')}`);
+        }
         const built = buildGroup(g, members);
         groupOutbounds.set(g.name, built);
         this.outbounds.set(g.name, built);
@@ -105,7 +104,7 @@ export class App {
     }
     for (const g of cfg.groups) {
       if (!groupOutbounds.has(g.name)) {
-        log.warn(`group '${g.name}' could not be built (missing members)`);
+        log.warn(`group '${g.name}' not built (no usable members)`);
       }
     }
 

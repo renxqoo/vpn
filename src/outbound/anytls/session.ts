@@ -149,8 +149,11 @@ export class AnytlsSession {
       const buffered = this.bufferList;
       this.bufferList = [];
       const [authBytes, ...restFrames] = buffered;
-      this.enqueue([authBytes ?? new Uint8Array(0)], false);
-      this.enqueue([...restFrames, syn], true);
+      const dropped = (e: unknown): void => {
+        log.debug(`first-flight frames dropped on dying session ${this.seq}: ${String(e).slice(0, 60)}`);
+      };
+      this.enqueue([authBytes ?? new Uint8Array(0)], false).catch(dropped);
+      this.enqueue([...restFrames, syn], true).catch(dropped);
     } else {
       this.writeFrames(syn);
     }

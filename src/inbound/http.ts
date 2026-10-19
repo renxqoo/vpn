@@ -10,6 +10,7 @@ import { MeteredPipe } from '../core/meter.ts';
 
 const log = logger('inbound:http');
 const HANDSHAKE_TIMEOUT = 30_000;
+const TUNNEL_IDLE_TIMEOUT = 120_000;
 const MAX_HEADER = 256 * 1024;
 
 function withIdleTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -351,17 +352,17 @@ export class HttpInbound {
       initial = initialAll;
       if (initial.length > 0) {
         try {
-          await upstream.write(initial);
+          await metered.write(initial);
         } catch (_e) {
           socket.end();
           return;
         }
       }
-      // 上游 → 客户端（经 meter 计量）
+      // 上游 → 客户端（经 meter 计量；空闲超时防静默上游钉死会话与台账）
       void (async () => {
         try {
           for (;;) {
-            const chunk = await st.tunnel!.upstream.read(65536);
+            const chunk = await withIdleTimeout(st.tunnel!.upstream.read(65536), TUNNEL_IDLE_TIMEOUT);
             socket.write(chunk);
           }
         } catch (_e) {

@@ -107,7 +107,7 @@ export class MmdbReader {
     switch (type) {
       case 'pointer': {
         const p = extra as number;
-        return this.decode(p);
+        return this.decode(this.dataStart + p);
       }
       case 'string': {
         const len = extra as number;
@@ -139,11 +139,16 @@ export class MmdbReader {
 
   private decodeCtrl(offset: number): [string, number | { pointer: number }] {
     const b = this.buf[offset] as number;
-    const typeBits = b >> 5;
+    let typeBits = b >> 5;
+    let cursor = offset + 1;
+    if (typeBits === 0) {
+      // extended：真实类型在下一字节
+      typeBits = this.buf[cursor] as number;
+      cursor += 1;
+    }
     if (typeBits === 1) {
       // pointer
-      const size = ((b >> 3) & 0x3);
-      const dv = new DataView(this.buf.buffer, this.buf.byteOffset);
+      const size = (b >> 3) & 0x3;
       let ptr = b & 0x7;
       const ssize = size === 0 ? 0 : size === 1 ? 1 : size === 2 ? 2 : 3;
       for (let i = 0; i < ssize; i++) {
@@ -154,7 +159,7 @@ export class MmdbReader {
     }
     const type = typeBits === 2 ? 'string' : typeBits === 7 ? 'map' : 'other';
     let len = b & 0x1f;
-    let o = offset + 1;
+    let o = cursor;
     if (len === 29) {
       len = 29 + (this.buf[o] as number);
       o += 1;
@@ -165,9 +170,6 @@ export class MmdbReader {
       len = 65821 + ((this.buf[o] as number) << 16) + ((this.buf[o + 1] as number) << 8) + (this.buf[o + 2] as number);
       o += 3;
     }
-    if (type === 'string') return [type, len];
-    if (type === 'map') return [type, len];
-    void dvUnused();
     return [type, len];
   }
 }
@@ -178,8 +180,6 @@ interface Decoded {
   map?: Map<string, Decoded>;
   next?: number;
 }
-
-function dvUnused(): void {}
 
 function sizeOfSize(n: number): number {
   if (n < 29) return 1;

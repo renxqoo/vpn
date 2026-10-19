@@ -132,7 +132,7 @@ export class RestApi {
       const bytes = new TextEncoder().encode(payload);
       const head =
         `HTTP/1.1 ${status} ${reason}\r\nContent-Type: application/json\r\n` +
-        `Content-Length: ${bytes.length}\r\n\r\n`;
+        `Content-Length: ${bytes.length}\r\nConnection: close\r\n\r\n`;
       const out = new Uint8Array(head.length + bytes.length);
       out.set(new TextEncoder().encode(head));
       out.set(bytes, head.length);

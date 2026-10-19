@@ -72,8 +72,7 @@ export class AutoGroup implements Outbound {
     this.order = cfg.proxies;
     this.type = cfg.type === 'fallback' ? 'fallback' : 'url-test';
     this.typeName = cfg.type === 'fallback' ? 'URLFallback' : 'URLTest';
-    this.url = cfg.url ?? 'http://cp.cloudflare.com/generate 204'.replace(' ', '_');
-    this.url = cfg.url ?? 'http://cp.cloudflare.com/';
+    this.url = cfg.url ?? 'http://cp.cloudflare.com/generate204';
     this.intervalMs = (cfg.interval ?? 300) * 1000;
     this.toleranceMs = cfg.tolerance ?? 50;
     this.currentName = this.order[0] ?? '';
