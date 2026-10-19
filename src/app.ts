@@ -18,6 +18,7 @@ import { buildGroup } from './rules/groups.ts';
 import { AutoGroup, SelectGroup } from './rules/groups.ts';
 import { HttpInbound } from './inbound/http.ts';
 import { Socks5Inbound } from './inbound/socks5.ts';
+import { MixedInbound } from './inbound/mixed.ts';
 import { RestApi } from './api/server.ts';
 import { ConnectionTracker } from './core/connections.ts';
 import { CLIENT_NAME } from './core/version.ts';
@@ -32,7 +33,7 @@ const proxyKey = (p: AnytlsProxyConfig) => JSON.stringify([
 export interface AppOptions {
   config: ClashConfig;
   cacheDir: string;
-  overrides?: { httpPort?: number; socksPort?: number; apiPort?: number };
+  overrides?: { httpPort?: number; socksPort?: number; apiPort?: number; mixedPort?: number };
   reloadConfig?: () => Promise<void>;
   disableSystemProxy?: () => Promise<void>;
   prepareShutdown?: () => Promise<void>;
@@ -40,7 +41,7 @@ export interface AppOptions {
 }
 
 export class App {
-  private inbounds: (HttpInbound | Socks5Inbound)[] = [];
+  private inbounds: (HttpInbound | Socks5Inbound | MixedInbound)[] = [];
   private api: RestApi | null = null;
   private outbounds = new Map<string, Outbound>();
   private providers: RuleProviders | null = null;
@@ -285,9 +286,17 @@ export class App {
       };
       const http = new HttpInbound({ port: httpPort, router: routerWrap, outboundOf, onOpen, onClose });
       const socks = new Socks5Inbound({ port: socksPort, router: routerWrap, outboundOf, onOpen, onClose });
-      this.inbounds = [http, socks];
-      await startListener('HTTP', httpPort, () => http.start());
-      await startListener('SOCKS5', socksPort, () => socks.start());
+      const mixedPort = this.opts.overrides?.mixedPort;
+      if (mixedPort !== undefined) {
+        // 混合端口：单监听双协议（docs/mixed-port.md）；0 = 自动分配；不再单独监听 HTTP/SOCKS
+        const mixed = new MixedInbound({ port: mixedPort, http, socks });
+        this.inbounds = [mixed];
+        await startListener('Mixed', mixedPort, () => mixed.start());
+      } else {
+        this.inbounds = [http, socks];
+        await startListener('HTTP', httpPort, () => http.start());
+        await startListener('SOCKS5', socksPort, () => socks.start());
+      }
 
       // API
       const owner = this;
@@ -338,6 +347,8 @@ export class App {
   }
 
   get httpPort(): number {
+    const mixed = this.inbounds.find((ib) => ib instanceof MixedInbound) as MixedInbound | undefined;
+    if (mixed) return mixed.port;
     const http = this.inbounds.find((ib) => ib instanceof HttpInbound) as HttpInbound | undefined;
     return http?.port ?? 0;
   }
@@ -348,8 +359,16 @@ export class App {
   }
 
   get socksPortForTest(): number {
+    const mixed = this.inbounds.find((ib) => ib instanceof MixedInbound) as MixedInbound | undefined;
+    if (mixed) return mixed.port;
     const socks = this.inbounds.find((ib) => ib instanceof Socks5Inbound) as Socks5Inbound | undefined;
     return socks?.port ?? 0;
+  }
+
+  /** 混合端口（未启用时 0；测试/展示用） */
+  get mixedPortForTest(): number {
+    const mixed = this.inbounds.find((ib) => ib instanceof MixedInbound) as MixedInbound | undefined;
+    return mixed?.port ?? 0;
   }
 }
 

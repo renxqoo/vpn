@@ -17,6 +17,7 @@ interface StartArgs {
   port?: number;
   socksPort?: number;
   apiPort?: number;
+  mixedPort?: number;
   direct: boolean;
   systemProxy: boolean;
 }
@@ -28,6 +29,7 @@ export function parseStartArgs(argv: string[]): StartArgs {
     if (a === '--port') out.port = Number(argv[++i]);
     else if (a === '--socks-port') out.socksPort = Number(argv[++i]);
     else if (a === '--api-port') out.apiPort = Number(argv[++i]);
+    else if (a === '--mixed-port') out.mixedPort = Number(argv[++i]);
     else if (a === '--direct') out.direct = true;
     else if (a === '--no-system-proxy') out.systemProxy = false;
     else {
@@ -35,7 +37,7 @@ export function parseStartArgs(argv: string[]): StartArgs {
       process.exit(1);
     }
   }
-  for (const port of [out.port, out.socksPort, out.apiPort]) {
+  for (const port of [out.port, out.socksPort, out.apiPort, out.mixedPort]) {
     if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535)) {
       throw new Error('监听端口必须是 0–65535 的整数（0 表示自动分配）');
     }
@@ -140,10 +142,18 @@ export async function runStart(argv: string[]): Promise<void> {
   const modeLabel = { rule: '规则', global: '全局', direct: '直连' }[app.currentMode()] ?? app.currentMode();
   log.info(`配置来源: ${runtime.sourceLabel}；模式: ${modeLabel}`);
   // 就绪提示不受 log-level 影响（silent 下启动零反馈像挂住）；前台交互必需
-  console.log(
-    `▶ 就绪：HTTP 127.0.0.1:${app.httpPort} · SOCKS 127.0.0.1:${app.socksPortForTest} · API 127.0.0.1:${app.apiPortForTest}` +
-    `（Ctrl-C 停止${isDaemon() ? '；后台守护模式' : ''}）`,
-  );
+  if (app.mixedPortForTest) {
+    console.log(
+      `▶ 就绪：混合端口 127.0.0.1:${app.mixedPortForTest}（HTTP+SOCKS5） · API 127.0.0.1:${app.apiPortForTest}` +
+      `（Ctrl-C 停止${isDaemon() ? '；后台守护模式' : ''}）`,
+    );
+  } else {
+    console.log(
+      `▶ 就绪：HTTP 127.0.0.1:${app.httpPort} · SOCKS 127.0.0.1:${app.socksPortForTest}` +
+      ` · API 127.0.0.1:${app.apiPortForTest}` +
+      `（Ctrl-C 停止${isDaemon() ? '；后台守护模式' : ''}）`,
+    );
+  }
 
   process.on('unhandledRejection', (reason: unknown) => {
     log.error(`unhandled rejection: ${String(reason).slice(0, 200)}`);

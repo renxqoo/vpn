@@ -17,6 +17,7 @@ export interface RuntimeSettings {
   mode: 'rule' | 'global' | 'direct';
   httpPort?: number;
   socksPort?: number;
+  mixedPort?: number;
   apiPort?: number;
   source: 'dotenv' | 'home' | 'empty';
 }
@@ -25,6 +26,7 @@ const SELECTED_NODE_RE = /^selected-node:\s*(?:'((?:[^']|'')*)'|([^\n]+?))\s*$/m
 const MODE_RE = /^mode:\s*(\S+)/m;
 const PORT_RE = /^port:\s*(\d+)\s*$/m;
 const SOCKS_PORT_RE = /^socks-port:\s*(\d+)\s*$/m;
+const MIXED_PORT_RE = /^mixed-port:\s*(\d+)\s*$/m;
 const SUB_URL_RE = /^subscription-url:[ \t]*(?:'((?:[^'\n]|'')*)'|([^\n]*?))[ \t]*$/m;
 
 function firstGroup(m: RegExpMatchArray | null): string | undefined {
@@ -42,6 +44,7 @@ export function parseHomeKeys(text: string): RuntimeSettings {
   const mode = modeRaw === 'global' || modeRaw === 'direct' ? modeRaw : 'rule';
   const port = Number(firstGroup(PORT_RE.exec(text)));
   const socks = Number(firstGroup(SOCKS_PORT_RE.exec(text)));
+  const mixed = Number(firstGroup(MIXED_PORT_RE.exec(text)));
   const secretMatch = /^secret:\s*(?:'([^'\n]*)'|"([^"\n]*)"|([^\n]*?))\s*$/m.exec(text);
   const secret = (secretMatch?.[1] ?? secretMatch?.[2] ?? secretMatch?.[3] ?? '').trim();
   return {
@@ -51,6 +54,7 @@ export function parseHomeKeys(text: string): RuntimeSettings {
     secret,
     httpPort: Number.isInteger(port) && port > 0 ? port : undefined,
     socksPort: Number.isInteger(socks) && socks > 0 ? socks : undefined,
+    mixedPort: Number.isInteger(mixed) && mixed > 0 ? mixed : undefined,
     apiPort: undefined,
     source: sub ? 'home' : 'empty',
   };
@@ -79,6 +83,7 @@ export function mergeSource(files: FileInputs): RuntimeSettings {
     subscriptionUrl,
     httpPort: num(kv['PORT']) ?? home.httpPort,
     socksPort: num(kv['SOCKS_PORT']) ?? home.socksPort,
+    mixedPort: num(kv['MIXED_PORT']) ?? home.mixedPort,
     apiPort: num(kv['API_PORT']) ?? home.apiPort,
     source,
   };
@@ -87,13 +92,13 @@ export function mergeSource(files: FileInputs): RuntimeSettings {
 export interface BuildOptions {
   files: FileInputs;
   subscriptionYaml: string | null;
-  cli?: { port?: number; socksPort?: number; apiPort?: number; direct?: boolean };
+  cli?: { port?: number; socksPort?: number; apiPort?: number; mixedPort?: number; direct?: boolean };
 }
 
 export interface RuntimeConfig {
   config: ClashConfig;
   settings: RuntimeSettings;
-  overrides: { httpPort: number; socksPort: number; apiPort: number };
+  overrides: { httpPort: number; socksPort: number; apiPort: number; mixedPort?: number };
   sourceLabel: string;
   needsSubscriptionGuide: boolean;
   warnings: string[];
@@ -118,6 +123,7 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
     httpPort: cli.port ?? settings.httpPort,
     socksPort: cli.socksPort ?? settings.socksPort,
     apiPort: cli.apiPort ?? settings.apiPort,
+    mixedPort: cli.mixedPort ?? settings.mixedPort,
   };
 
   let config: ClashConfig;
@@ -183,6 +189,7 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
       httpPort: finalConfig.httpPort,
       socksPort: finalConfig.socksPort,
       apiPort: effectiveApiPort,
+      mixedPort: overrides.mixedPort,
     },
     sourceLabel,
     needsSubscriptionGuide: needsGuide,

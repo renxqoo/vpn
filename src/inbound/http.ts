@@ -74,7 +74,8 @@ export class HttpInbound {
     this.listener = null;
   }
 
-  private handler(): Bun.SocketHandler<undefined> {
+  /** 协议状态机（mixed 入站复用；可见性公开仅为此，逻辑零改动） */
+  handler(): Bun.SocketHandler<undefined> {
     const { router, outboundOf, onOpen, onClose } = this.opts;
 
     function isIpHost(h: string): boolean {

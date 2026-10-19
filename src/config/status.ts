@@ -130,8 +130,12 @@ export async function runStatusCommand(apiPortArg?: number): Promise<void> {
     rows.push(['节点状态', currentHealth ? formatNodeHealth(currentHealth) :
       api.delay !== null ? `可用 · ${api.delay}ms` : '未探测']);
   }
-  rows.push(['HTTP 端口', String(src.httpPort ?? 7890)]);
-  rows.push(['SOCKS 端口', String(src.socksPort ?? 7891)]);
+  if (src.mixedPort) {
+    rows.push(['混合端口', String(src.mixedPort)]);
+  } else {
+    rows.push(['HTTP 端口', String(src.httpPort ?? 7890)]);
+    rows.push(['SOCKS 端口', String(src.socksPort ?? 7891)]);
+  }
   rows.push(['API 端口', String(apiPort)]);
   for (const [k, v] of rows) {
     p.log.message(`  ${k.padEnd(6, '　')} ${v}`);
