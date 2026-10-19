@@ -82,15 +82,10 @@ export class AnytlsClient {
       connectReject?.(new Error('connect timeout (tcp or tls handshake)'));
       try {
         socketPlaceholder?.end();
-      } catch (_e2) {
-        /* noop */
-      }
-      session?.die('connect timeout');
-      try {
-        socketPlaceholder?.end();
       } catch (_e) {
         /* noop */
       }
+      session?.die('connect timeout');
     }, CONNECT_TIMEOUT);
     let socketPlaceholder: Bun.Socket<undefined> | null = null;
     const socket = await Promise.race([Bun.connect({
