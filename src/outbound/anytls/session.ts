@@ -321,14 +321,18 @@ export class AnytlsSession {
         const job = this.writeQueue.shift() as WriteJob & PaddingJob;
         this.writeQueueBytes -= job.bytes.reduce((n, b) => n + b.length, 0);
         if (job.src) this.writeQueueBytes -= job.src.reduce((n, b) => n + b.length, 0);
+        let failed = false;
         try {
           if (job.padding === true && job.src) {
             await this.writeWithPadding(job.src);
           } else {
             await this.writeSocket(job.bytes.flat());
           }
+        } catch (e) {
+          failed = true;
+          job.reject(e instanceof Error ? e : new Error(String(e)));
         } finally {
-          job.resolve();
+          if (!failed) job.resolve();
         }
       }
     } finally {
@@ -338,7 +342,11 @@ export class AnytlsSession {
 
   private writeSocket(bytes: Uint8Array[]): Promise<void> {
     const sock = this.socket;
-    if (!sock || this.dead) return Promise.resolve();
+    if (!sock || this.dead) {
+      const total = bytes.reduce((n, b) => n + b.length, 0);
+      if (total === 0) return Promise.resolve();
+      return Promise.reject(new Error(`session dead: ${this.dieReason}`));
+    }
     const total = bytes.reduce((n, b) => n + b.length, 0);
     if (total === 0) return Promise.resolve();
     const merged = new Uint8Array(total);

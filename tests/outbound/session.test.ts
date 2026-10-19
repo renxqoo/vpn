@@ -28,6 +28,39 @@ function makeClient(): AnytlsClient {
   });
 }
 
+describe('write path honesty (dead-session writes must not report success)', () => {
+  test(
+    'writeStreamData rejects when session dies before dequeue',
+    async () => {
+      const server = new AnytlsTestServer({ password: 'wp' });
+      await server.start();
+      const client = new AnytlsClient('honesty', {
+        host: '127.0.0.1',
+        port: server.port,
+        password: 'wp',
+        skipCertVerify: true,
+        clientName: 'honesty-test',
+        idleSessionCheckIntervalMs: 60000,
+        idleSessionTimeoutMs: 60000,
+      });
+      const { stream, done } = await client.openStream();
+      await stream.writeTarget({ type: 'fqdn', host: 'x.test', port: 80 });
+      // 大块写走 padding 多步；写进行中击杀会话 → 写必须 reject（不能谎报成功）
+      const sess = (client as unknown as { sessions: Map<number, { die(r: string): void }> }).sessions;
+      const first = [...sess.values()][0];
+      const payload = new Uint8Array(1024 * 1024).fill(65);
+      const writePromise = stream.write(payload);
+      first?.die('socket closed');
+      await expect(writePromise).rejects.toThrow();
+      stream.close();
+      await done;
+      client.close();
+      server.stop();
+    },
+    { timeout: 10000 },
+  );
+});
+
 describe('anytls client ↔ test server', () => {
   test(
     'echo roundtrip through stream',
