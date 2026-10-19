@@ -30,6 +30,8 @@ const PORT_RE = /^port:\s*(\d+)\s*$/m;
 const SOCKS_PORT_RE = /^socks-port:\s*(\d+)\s*$/m;
 const MIXED_PORT_RE = /^mixed-port:\s*(\d+)\s*$/m;
 const SUB_URL_RE = /^subscription-url:[ \t]*(?:'((?:[^'\n]|'')*)'|([^\n]*?))[ \t]*$/m;
+const EXTERNAL_CONTROLLER_RE = /^external-controller:[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|([^\n]*?))[ \t]*$/m;
+const LOG_LEVELS = new Set<string>(['debug', 'info', 'warn', 'error', 'silent']);
 
 function firstGroup(m: RegExpMatchArray | null): string | undefined {
   if (!m) return undefined;
@@ -45,13 +47,20 @@ export function parseHomeKeys(text: string): RuntimeSettings {
   const modeRaw = firstGroup(MODE_RE.exec(text));
   const mode = modeRaw === 'global' || modeRaw === 'direct' ? modeRaw : 'rule';
   const logRaw = firstGroup(LOG_LEVEL_RE.exec(text));
-  const LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error', 'silent']);
-  const logLevel = logRaw !== undefined && LOG_LEVELS.has(logRaw) ? logRaw : undefined;
+  const logLevel = logRaw !== undefined && LOG_LEVELS.has(logRaw)
+    ? logRaw as RuntimeSettings['logLevel']
+    : undefined;
   const port = Number(firstGroup(PORT_RE.exec(text)));
   const socks = Number(firstGroup(SOCKS_PORT_RE.exec(text)));
   const mixed = Number(firstGroup(MIXED_PORT_RE.exec(text)));
   const secretMatch = /^secret:\s*(?:'([^'\n]*)'|"([^"\n]*)"|([^\n]*?))\s*$/m.exec(text);
   const secret = (secretMatch?.[1] ?? secretMatch?.[2] ?? secretMatch?.[3] ?? '').trim();
+  const controllerMatch = EXTERNAL_CONTROLLER_RE.exec(text);
+  const groups = controllerMatch?.slice(1);
+  const controllerText = groups ? (groups.find((g) => g !== undefined) ?? '') : null;
+  const controllerPortRaw = controllerText !== null ? Number(/:(\d+)$/.exec(controllerText)?.[1]) : undefined;
+  const controllerPortValid = controllerPortRaw !== undefined &&
+    Number.isInteger(controllerPortRaw) && controllerPortRaw >= 1 && controllerPortRaw <= 65535;
   return {
     subscriptionUrl: sub,
     selectedNode,
@@ -61,7 +70,7 @@ export function parseHomeKeys(text: string): RuntimeSettings {
     httpPort: Number.isInteger(port) && port > 0 ? port : undefined,
     socksPort: Number.isInteger(socks) && socks > 0 ? socks : undefined,
     mixedPort: Number.isInteger(mixed) && mixed > 0 ? mixed : undefined,
-    apiPort: undefined,
+    apiPort: controllerText !== null && controllerPortValid ? controllerPortRaw : undefined,
     source: sub ? 'home' : 'empty',
   };
 }
@@ -110,12 +119,6 @@ export interface RuntimeConfig {
   warnings: string[];
 }
 
-function parseApiPort(addr: string | null | undefined): number | undefined {
-  if (!addr) return undefined;
-  const m = /:(\d+)$/.exec(addr);
-  return m ? Number(m[1]) : undefined;
-}
-
 const DIRECT_FALLBACK_RULES: ClashConfig['rules'] = [
   { type: 'MATCH', payload: '', target: 'DIRECT', noResolve: false, raw: 'MATCH,DIRECT' },
 ];
@@ -156,13 +159,16 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
     config = parseClashConfig(opts.subscriptionYaml);
   }
 
+  const effectiveApiPort = overrides.apiPort ?? 9090;
+
   const finalConfig: ClashConfig = {
     ...config,
     httpPort: overrides.httpPort ?? config.httpPort,
     socksPort: overrides.socksPort ?? config.socksPort,
     mode: settings.mode,
     logLevel: settings.logLevel ?? 'info',
-    apiSecret: settings.secret !== undefined && settings.secret !== '' ? settings.secret : config.apiSecret,
+    apiAddr: `127.0.0.1:${effectiveApiPort}`,
+    apiSecret: settings.secret ?? '',
   };
 
   if (settings.selectedNode) {
@@ -187,8 +193,6 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
   else if (settings.source === 'home') parts.push('~/.vpn/config.yaml（订阅）');
   if (opts.files.dotenvText !== null && settings.source !== 'dotenv') parts.push('.env（端口覆盖）');
   const sourceLabel = parts.length > 0 ? parts.join(' + ') : '空（直连）';
-
-  const effectiveApiPort = overrides.apiPort ?? parseApiPort(config.apiAddr) ?? 9090;
 
   return {
     config: finalConfig,

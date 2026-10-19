@@ -96,17 +96,27 @@ export class RuleProviders {
   private async loadOne(name: string, cfg: RuleProviderConfig, isRefresh = false): Promise<void> {
     let text: string | null = null;
     if (cfg.url) {
-      try {
-        text = await withTimeout(this.store.fetch(cfg.url), 15000);
-        await this.persistCache(name, text);
-      } catch (e) {
-        log.warn(
-          `provider '${name}' fetch failed (${String(e).slice(0, 60)})${isRefresh ? ' [refresh]' : ''}, trying cache`,
-        );
+      if (!providerUrlAllowed(cfg.url)) {
+        log.warn(`provider '${name}': url must be https, ignored`);
+      } else {
+        try {
+          text = await withTimeout(this.store.fetch(cfg.url), 15000);
+          await this.persistCache(name, text);
+        } catch (e) {
+          log.warn(
+            `provider '${name}' fetch failed (${String(e).slice(0, 60)})${isRefresh ? ' [refresh]' : ''}, trying cache`,
+          );
+        }
       }
     }
     if (text === null && cfg.path) {
-      text = await this.store.readFile(cfg.path).catch(() => null);
+      const base = this.store.cacheDir();
+      const allowed = base !== null && providerPathAllowed(base, cfg.path);
+      if (!allowed) {
+        log.warn(`provider '${name}': path must stay inside the cache directory, ignored`);
+      } else {
+        text = await this.store.readFile(cfg.path).catch(() => null);
+      }
     }
     if (text === null) {
       text = await this.readCache(name);
@@ -229,6 +239,18 @@ export function safeProviderCachePath(dir: string, name: string): string | null 
   const p = join(dir, `ruleset-${name}.txt`);
   if (resolve(p) !== resolve(dir) + sep + `ruleset-${name}.txt`) return null;
   return p;
+}
+
+/** 订阅提供的 provider url 只允许 http(s)（Bun fetch 会跟随 file://，构成任意本地读） */
+export function providerUrlAllowed(url: string): boolean {
+  return /^https?:\/\//.test(url);
+}
+
+/** 订阅提供的 provider path 必须落在缓存目录内（解析后前缀比对，拒绝穿越） */
+export function providerPathAllowed(baseDir: string, path: string): boolean {
+  const resolved = resolve(path);
+  const base = resolve(baseDir);
+  return resolved === base || resolved.startsWith(base + sep);
 }
 
 function extractEntries(text: string): string[] {
