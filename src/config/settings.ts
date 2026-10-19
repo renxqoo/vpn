@@ -15,6 +15,7 @@ export interface RuntimeSettings {
   selectedNode?: string;
   secret?: string;
   mode: 'rule' | 'global' | 'direct';
+  logLevel?: 'debug' | 'info' | 'warn' | 'error' | 'silent';
   httpPort?: number;
   socksPort?: number;
   mixedPort?: number;
@@ -24,6 +25,7 @@ export interface RuntimeSettings {
 
 const SELECTED_NODE_RE = /^selected-node:\s*(?:'((?:[^']|'')*)'|([^\n]+?))\s*$/m;
 const MODE_RE = /^mode:\s*(\S+)/m;
+const LOG_LEVEL_RE = /^log-level:\s*(\S+)/m;
 const PORT_RE = /^port:\s*(\d+)\s*$/m;
 const SOCKS_PORT_RE = /^socks-port:\s*(\d+)\s*$/m;
 const MIXED_PORT_RE = /^mixed-port:\s*(\d+)\s*$/m;
@@ -42,6 +44,9 @@ export function parseHomeKeys(text: string): RuntimeSettings {
   const selectedNode = selMatch ? (selMatch[1]?.replace(/''/g, "'") ?? selMatch[2]?.trim()) || undefined : undefined;
   const modeRaw = firstGroup(MODE_RE.exec(text));
   const mode = modeRaw === 'global' || modeRaw === 'direct' ? modeRaw : 'rule';
+  const logRaw = firstGroup(LOG_LEVEL_RE.exec(text));
+  const LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error', 'silent']);
+  const logLevel = logRaw !== undefined && LOG_LEVELS.has(logRaw) ? logRaw : undefined;
   const port = Number(firstGroup(PORT_RE.exec(text)));
   const socks = Number(firstGroup(SOCKS_PORT_RE.exec(text)));
   const mixed = Number(firstGroup(MIXED_PORT_RE.exec(text)));
@@ -51,6 +56,7 @@ export function parseHomeKeys(text: string): RuntimeSettings {
     subscriptionUrl: sub,
     selectedNode,
     mode,
+    logLevel,
     secret,
     httpPort: Number.isInteger(port) && port > 0 ? port : undefined,
     socksPort: Number.isInteger(socks) && socks > 0 ? socks : undefined,
@@ -154,6 +160,8 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
     ...config,
     httpPort: overrides.httpPort ?? config.httpPort,
     socksPort: overrides.socksPort ?? config.socksPort,
+    mode: settings.mode,
+    logLevel: settings.logLevel ?? 'info',
     apiSecret: settings.secret !== undefined && settings.secret !== '' ? settings.secret : config.apiSecret,
   };
 

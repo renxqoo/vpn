@@ -157,6 +157,30 @@ describe('buildRuntimeConfig：合并 + CLI 覆盖 → 启动配置', () => {
     expect(cfg.settings.selectedNode).toBeUndefined();
     expect(cfg.warnings.some((w) => w.includes('不存在的节点'))).toBe(true);
   });
+
+  test('家目录 mode 覆盖订阅 mode（本地运行态只听本地配置）', async () => {
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'\nmode: global" }),
+      subscriptionYaml: subYaml,
+    });
+    expect(cfg.config.mode).toBe('global');
+  });
+
+  test('订阅 log-level: silent 不吞掉内核反馈（未在本地配置时不生效）', async () => {
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'" }),
+      subscriptionYaml: `${subYaml}\nlog-level: silent\n`,
+    });
+    expect(cfg.config.logLevel).toBe('info');
+  });
+
+  test('家目录 log-level 控制内核日志级别', async () => {
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'\nlog-level: warn" }),
+      subscriptionYaml: `${subYaml}\nlog-level: debug\n`,
+    });
+    expect(cfg.config.logLevel).toBe('warn');
+  });
 });
 
 void mkdirSync;

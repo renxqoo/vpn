@@ -112,6 +112,7 @@ export async function runStart(argv: string[]): Promise<void> {
   };
   process.on('SIGINT', signalShutdown);
   process.on('SIGTERM', signalShutdown);
+  process.on('SIGHUP', signalShutdown);
   startup = (async () => {
     try {
       await app.start();
