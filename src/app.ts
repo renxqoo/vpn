@@ -28,6 +28,7 @@ export interface AppOptions {
   config: ClashConfig;
   cacheDir: string;
   overrides?: { httpPort?: number; socksPort?: number; apiPort?: number };
+  reloadConfig?: () => Promise<void>;
 }
 
 export class App {
@@ -40,6 +41,7 @@ export class App {
   private opts: AppOptions;
   private runtimeMode: ClashConfig['mode'];
   private readonly groupLabel = '🚀 节点选择';
+  private stopped = false;
 
   constructor(opts: AppOptions) {
     this.opts = opts;
@@ -59,7 +61,7 @@ export class App {
     return true;
   }
 
-  async start(): Promise<void> {
+  private async prepareRouting(): Promise<void> {
     const cfg = this.opts.config;
     const cache = this.opts.cacheDir;
 
@@ -167,6 +169,39 @@ export class App {
     if (geoip) log.info('geoip active');
     else log.warn('geoip disabled (GEOIP rules will not match)');
 
+  }
+
+  /** 先准备新路由，成功后同步发布；保留监听器和运行模式。 */
+  async reload(config: ClashConfig): Promise<void> {
+    if (this.stopped) throw new Error('app stopped');
+    const fingerprint = (cfg: ClashConfig) => JSON.stringify({ ...cfg, ruleProviders: [...cfg.ruleProviders] });
+    if (fingerprint(config) === fingerprint(this.opts.config)) return;
+    const next = new App({ ...this.opts, config });
+    try {
+      await next.prepareRouting();
+      if (this.stopped) throw new Error('app stopped');
+    } catch (e) {
+      next.closeRouting();
+      throw e;
+    }
+    this.closeRouting();
+    this.outbounds = next.outbounds;
+    this.providers = next.providers;
+    this.engine = next.engine;
+    this.opts.config = config;
+    log.info('subscription configuration reloaded');
+  }
+
+  private closeRouting(): void {
+    this.providers?.stop();
+    for (const o of this.outbounds.values()) o.close();
+    this.outbounds.clear();
+  }
+
+  async start(): Promise<void> {
+    this.stopped = false;
+    await this.prepareRouting();
+    const cfg = this.opts.config;
     // 入站
     const httpPort = this.opts.overrides?.httpPort ?? cfg.httpPort;
     const socksPort = this.opts.overrides?.socksPort ?? cfg.socksPort;
@@ -181,7 +216,7 @@ export class App {
             const member = group.current();
             if (member && member !== 'DIRECT') return { outbound: member } as const;
           }
-          const firstProxy = cfg.proxies.find((p) => p.kind === 'anytls');
+          const firstProxy = this.opts.config.proxies.find((p) => p.kind === 'anytls');
           return { outbound: firstProxy ? firstProxy.name : 'DIRECT' } as const;
         }
         return this.engine!.resolve(ctx);
@@ -213,12 +248,14 @@ export class App {
     this.inbounds = [http, socks];
 
     // API
+    const owner = this;
     this.api = new RestApi({
       tracker: this.tracker,
       loopbackPort: 0,
       outboundOf: (n) => this.outbounds.get(n),
       outboundNames: () => [...this.outbounds.keys()],
-      engine: this.engine,
+      get engine() { return owner.engine!; },
+      reloadConfig: this.opts.reloadConfig,
       secret: cfg.apiSecret,
       setMode: (m) => this.setMode(m),
       currentMode: () => this.runtimeMode,
@@ -229,13 +266,12 @@ export class App {
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
     for (const ib of this.inbounds) ib.stop();
     this.inbounds = [];
     this.api?.stop();
     this.api = null;
-    this.providers?.stop();
-    for (const o of this.outbounds.values()) o.close();
-    this.outbounds.clear();
+    this.closeRouting();
     log.info('stopped');
   }
 
@@ -270,7 +306,7 @@ export async function appFromSubscription(
   opts: Partial<Omit<AppOptions, 'config'>> = {},
 ): Promise<App> {
   const { defaultStore } = await import('./config/subscription.ts');
-  const text = await loadSubscription(url, defaultStore(cacheDir));
+  const text = await loadSubscription(url, defaultStore(cacheDir, url));
   const config = parseClashConfig(text);
   const app = new App({ ...opts, config, cacheDir });
   await app.start();

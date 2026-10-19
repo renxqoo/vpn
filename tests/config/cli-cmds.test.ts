@@ -72,6 +72,8 @@ describe('nodes command units', () => {
   test('node name with single quote is escaped', async () => {
     await writeSelectedNode("x'y");
     expect(await readSelectedNode()).toBe("x'y");
+    await writeSelectedNode("node $& $` $'");
+    expect(await readSelectedNode()).toBe("node $& $` $'");
   });
 });
 
@@ -116,4 +118,27 @@ describe('mode command units', () => {
       expect(text.match(/^mode:/gm)?.length).toBe(1);
     }
   });
+});
+
+test('CLI controller lookup keeps running port and secret when subscription values change', async () => {
+  const { resolveController, writeController } = await import('../../src/config/controller.ts');
+  const path = join(tmpHome, '.vpn/controller.json');
+  await writeController(12345, 'running-secret');
+  try {
+    expect(await resolveController(23456, 'new-secret')).toMatchObject({
+      apiPort: 12345, secret: 'running-secret',
+    });
+    expect(await resolveController(23456, 'new-secret', 12345)).toMatchObject({
+      apiPort: 12345, secret: 'running-secret',
+    });
+    expect(await resolveController(23456, 'new-secret', 34567)).toEqual({
+      apiPort: 34567, secret: 'new-secret',
+    });
+    await Bun.write(path, '{broken json');
+    expect(await resolveController(23456, 'new-secret')).toEqual({ apiPort: 23456, secret: 'new-secret' });
+    await Bun.write(path, JSON.stringify({ pid: -1, apiPort: 12345, secret: 'stale' }));
+    expect(await resolveController(23456, 'new-secret')).toEqual({ apiPort: 23456, secret: 'new-secret' });
+  } finally {
+    rmSync(path, { force: true });
+  }
 });

@@ -1,7 +1,12 @@
 /** config 子命令（从原 main.ts 拆出；design.md §1.1 第三批）。 */
 
 import { DOTENV_PATH, HOME_CONFIG_PATH, setSubscription } from './config/paths.ts';
-import { collectFileInputs, mergeSource } from './config/settings.ts';
+import { buildRuntimeConfig, collectFileInputs, mergeSource } from './config/settings.ts';
+import { cacheDirectory } from './config/paths.ts';
+import { defaultStore, loadSubscription } from './config/subscription.ts';
+import { writeSelectedNode } from './config/nodes.ts';
+import { resolveController } from './config/controller.ts';
+import { hotReload } from './config/reload.ts';
 import { PROGRAM_VERSION } from './core/version.ts';
 
 function usage(): void {
@@ -19,6 +24,15 @@ export async function runConfigCommand(sub: string[]): Promise<void> {
     }
     const path = await setSubscription(url);
     console.log(`订阅地址已写入 ${path}`);
+    const files = await collectFileInputs();
+    const src = mergeSource(files);
+    const text = await loadSubscription(url, defaultStore(cacheDirectory(), url));
+    const runtime = await buildRuntimeConfig({ files, subscriptionYaml: text });
+    if (src.selectedNode && !runtime.settings.selectedNode) await writeSelectedNode(null);
+    const controller = await resolveController(runtime.overrides.apiPort, runtime.config.apiSecret);
+    const hot = await hotReload(controller.apiPort, controller.secret);
+    if (hot === 'failed') throw new Error('订阅已保存，但内核刷新失败；请重启内核后生效');
+    console.log(hot === 'reloaded' ? '订阅已更新，运行配置已同步' : '订阅已更新（内核未运行，下次启动生效）');
     return;
   }
   if (cmd === 'show') {

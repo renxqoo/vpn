@@ -25,6 +25,7 @@ export interface ApiDeps {
   secret: string;
   setMode(mode: 'rule' | 'global' | 'direct'): boolean;
   currentMode(): 'rule' | 'global' | 'direct';
+  reloadConfig?: () => Promise<void>;
 }
 
 export class RestApi {
@@ -67,6 +68,7 @@ export class RestApi {
 
   private handler(): Bun.SocketHandler<undefined> {
     const deps = this.deps;
+    let reloading = false;
     return {
       open(socket) {
         (socket.data as unknown as { buf: Uint8Array; bodyLen: number; headerEnd: number }) = {
@@ -232,6 +234,26 @@ export class RestApi {
           json(socket, 204, '');
           return;
         }
+      }
+      if (method === 'POST' && path === '/configs/reload') {
+        if (!deps.reloadConfig) {
+          json(socket, 501, { message: 'reload unavailable' });
+          return;
+        }
+        if (reloading) {
+          json(socket, 409, { message: 'reload in progress' });
+          return;
+        }
+        reloading = true;
+        try {
+          await deps.reloadConfig();
+          json(socket, 204, '');
+        } catch (_e) {
+          json(socket, 400, { message: 'subscription reload failed; previous configuration retained' });
+        } finally {
+          reloading = false;
+        }
+        return;
       }
       if (method === 'GET' && path === '/configs') {
         json(socket, 200, { mode: deps.currentMode() });

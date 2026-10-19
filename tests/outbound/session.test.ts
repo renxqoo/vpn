@@ -202,3 +202,43 @@ describe('anytls client ↔ test server', () => {
     { timeout: 15000 },
   );
 });
+
+test('closing a client during TLS connection cannot publish a late session or stream', async () => {
+  const client = makeClient();
+  const opening = client.openStream();
+  // openStream 已进入 createSession，close 必须覆盖尚未加入会话池的连接。
+  client.close();
+  await expect(opening).rejects.toThrow('client closed');
+  await Bun.sleep(30);
+  expect(client.activeSessionCount()).toBe(0);
+  expect(client.idleSessionCount()).toBe(0);
+  await expect(client.openStream()).rejects.toThrow('client closed');
+});
+
+test('client close reclaims a late TCP socket even when the peer never completes TLS', async () => {
+  let accepted = 0;
+  let closed = 0;
+  const hanging = Bun.listen({
+    hostname: '127.0.0.1', port: 0,
+    socket: {
+      open() { accepted++; },
+      data() {},
+      close() { closed++; },
+    },
+  });
+  const client = new AnytlsClient('hanging-handshake', {
+    host: '127.0.0.1', port: hanging.port, password: 'pw', skipCertVerify: true, clientName: 'test',
+  });
+  try {
+    const opening = client.openStream();
+    client.close();
+    await expect(opening).rejects.toThrow('client closed');
+    for (let i = 0; i < 100 && (accepted === 0 || closed !== accepted); i++) await Bun.sleep(5);
+    expect(accepted).toBe(1);
+    expect(closed).toBe(accepted);
+    expect(client.activeSessionCount()).toBe(0);
+  } finally {
+    client.close();
+    hanging.stop(true);
+  }
+});

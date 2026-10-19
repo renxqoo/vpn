@@ -24,7 +24,7 @@ rules:
     });
     try {
       const url = `http://127.0.0.1:${server.port}/subscribe?token=test`;
-      const text = await defaultStore('').fetch(url);
+      const text = await defaultStore('', url).fetch(url);
       const cfg = parseClashConfig(text);
       expect(cfg.proxies).toHaveLength(1);
       expect(cfg.proxies[0]?.kind).toBe('anytls');
@@ -33,6 +33,38 @@ rules:
       if (usage.kind === 'ok') expect(usage.usage.total).toBe(100);
     } finally {
       server.stop(true);
+    }
+  });
+});
+
+describe('subscription cache isolation', () => {
+  test('new URL cannot fall back to another subscription; same URL can use its cache', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { loadSubscription } = await import('../../src/config/subscription.ts');
+    const dir = mkdtempSync(join(tmpdir(), 'vpn-sub-cache-'));
+    const yaml = 'proxies: []\nrules:\n  - MATCH,DIRECT\n';
+    const a = defaultStore(dir, 'https://a.test/subscribe');
+    const b = defaultStore(dir, 'https://b.test/subscribe');
+    try {
+      expect(a.cachePath).not.toBe(b.cachePath);
+      await loadSubscription('https://a.test/subscribe', { ...a, fetch: async () => yaml });
+      const offline = async () => { throw new Error('offline'); };
+      expect(await loadSubscription('https://a.test/subscribe', { ...a, fetch: offline })).toBe(yaml);
+      await expect(loadSubscription('https://b.test/subscribe', { ...b, fetch: offline })).rejects.toThrow();
+      // 200 返回的错误页不能污染已验证的缓存。
+      expect(await loadSubscription('https://a.test/subscribe', {
+        ...a, fetch: async () => '<html>invalid subscription</html>',
+      })).toBe(yaml);
+      expect(await loadSubscription('https://a.test/subscribe', {
+        ...a, fetch: async () => 'message: subscription expired',
+      })).toBe(yaml);
+      expect(await Bun.file(a.cachePath!).text()).toBe(yaml);
+      await Bun.write(b.cachePath!, '<html>bad cache</html>');
+      await expect(loadSubscription('https://b.test/subscribe', { ...b, fetch: offline })).rejects.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

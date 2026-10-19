@@ -68,3 +68,24 @@ describe('classical payload variants', () => {
     expect(r.classical?.[0]?.type).toBe('MATCH');
   });
 });
+
+test('stopping a provider during initial load cannot recreate its refresh timer', async () => {
+  let release: (value: string) => void = () => {};
+  let fetches = 0;
+  const pending = new Promise<string>((resolve) => { release = resolve; });
+  const provider = new RuleProviders(new Map([['late', {
+    ...cfg('late', 'http://late.test/rules'), interval: 0.005,
+  }]]), {
+    cacheDir: () => null,
+    fetch: async () => { fetches++; return pending; },
+    readFile: async () => null,
+    now: () => Date.now(),
+  });
+  const loading = provider.loadAll();
+  provider.stop();
+  release('payload:\n  - test.example\n');
+  await loading;
+  await Bun.sleep(40);
+  expect(fetches).toBe(1);
+  provider.stop();
+});

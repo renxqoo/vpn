@@ -18,7 +18,7 @@ describe('real node smoke (opt-in)', () => {
   test.skipIf(!GATE)(
     'subscription fetch + 3 nodes echo cp.cloudflare.com 204',
     async () => {
-      const text = await loadSubscription(SUB_URL, defaultStore('/tmp/bunclash-real-cache'));
+      const text = await loadSubscription(SUB_URL, defaultStore('/tmp/bunclash-real-cache', SUB_URL));
       const cfg = parseClashConfig(text);
       const nodes = cfg.proxies.filter((p) => p.kind === 'anytls');
       expect(nodes.length).toBeGreaterThan(0);

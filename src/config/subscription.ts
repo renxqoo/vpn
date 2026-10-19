@@ -4,6 +4,15 @@ import { join } from 'node:path';
 import { logger } from '../core/log.ts';
 import { readTextBounded } from '../core/fetchbounded.ts';
 import { chmodSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { parseClashConfig } from './clash.ts';
+
+function validateSubscription(text: string): void {
+  const cfg = parseClashConfig(text);
+  if (cfg.proxies.length === 0 && cfg.groups.length === 0 && cfg.rules.length === 0) {
+    throw new Error('subscription contains no proxies, groups or rules');
+  }
+}
 
 const log = logger('config:subscription');
 
@@ -18,8 +27,9 @@ export interface SubscriptionStore {
 export async function loadSubscription(url: string, store: SubscriptionStore): Promise<string> {
   try {
     const text = await store.fetch(url);
+    validateSubscription(text);
     if (store.cachePath) {
-      await Bun.write(store.cachePath, text).catch(() => {});
+      await Bun.write(store.cachePath, text, { createPath: true }).catch(() => {});
       try {
         chmodSync(store.cachePath, 0o600);
       } catch (_e) {
@@ -34,6 +44,7 @@ export async function loadSubscription(url: string, store: SubscriptionStore): P
       const f = Bun.file(store.cachePath);
       if (await f.exists()) {
         const text = await f.text();
+        validateSubscription(text);
         log.info('using cached subscription');
         return text;
       }
@@ -42,10 +53,10 @@ export async function loadSubscription(url: string, store: SubscriptionStore): P
   }
 }
 
-/** 生产 store：真实 fetch（Mihomo 兼容 UA）+ .cache/sub.yaml */
-export function defaultStore(cacheDir: string): SubscriptionStore {
+/** 生产 store：URL 隔离缓存，避免新订阅失败时误用旧订阅。 */
+export function defaultStore(cacheDir: string, url: string): SubscriptionStore {
   return {
-    cachePath: join(cacheDir, 'sub.yaml'),
+    cachePath: join(cacheDir, `sub-${createHash('sha256').update(url).digest('hex')}.yaml`),
     async fetch(u: string): Promise<string> {
       const r = await fetch(u, {
         headers: { 'user-agent': CLASH_USER_AGENT },

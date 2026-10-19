@@ -36,6 +36,7 @@ export class AnytlsClient {
   private idle = new Map<number, { session: AnytlsSession; openedTotal: number }>();
   private seqCounter = 0;
   private closed = false;
+  private pendingConnects = new Set<() => void>();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(name: string, opts: AnytlsClientOptions) {
@@ -74,11 +75,13 @@ export class AnytlsClient {
     const openedPromise = new Promise<void>((r) => (openResolve = r));
     // 建连超时（含 TCP 接受但 TLS 挂死：Bun.connect promise 永不 resolve 的形态）
     const CONNECT_TIMEOUT = 15_000;
+    let cancelled = false;
     let connectReject: ((e: Error) => void) | null = null;
     const connectFailed = new Promise<never>((_, rej) => {
       connectReject = rej;
     });
     const connectTimer = setTimeout(() => {
+      cancelled = true;
       connectReject?.(new Error('connect timeout (tcp or tls handshake)'));
       try {
         socketPlaceholder?.end();
@@ -88,59 +91,93 @@ export class AnytlsClient {
       session?.die('connect timeout');
     }, CONNECT_TIMEOUT);
     let socketPlaceholder: Bun.Socket<undefined> | null = null;
-    const socket = await Promise.race([Bun.connect({
-      hostname: this.opts.host,
-      port: this.opts.port,
-      tls: {
-        rejectUnauthorized: this.opts.skipCertVerify ? false : true,
-        serverName: this.opts.sni ?? this.opts.host,
-      },
-      socket: {
-        data(_s, data) {
-          session?.feedData(data as Buffer);
+    const cancel = () => {
+      cancelled = true;
+      connectReject?.(new Error('client closed'));
+      socketPlaceholder?.terminate();
+      session?.die('client closed');
+    };
+    this.pendingConnects.add(cancel);
+    const owner = this;
+    try {
+      const socket = await Promise.race([Bun.connect({
+        hostname: this.opts.host,
+        port: this.opts.port,
+        tls: {
+          rejectUnauthorized: this.opts.skipCertVerify ? false : true,
+          serverName: this.opts.sni ?? this.opts.host,
         },
-        close() {
-          session?.die('socket closed');
+        socket: {
+          data(_s, data) {
+            session?.feedData(data as Buffer);
+          },
+          close() {
+            session?.die('socket closed');
+          },
+          end() {
+            session?.die('socket ended');
+          },
+          error(_s, err) {
+            session?.die(String(err));
+          },
+          open(sock) {
+            if (owner.closed || cancelled) {
+              sock.terminate();
+              connectReject?.(new Error('client closed'));
+              return;
+            }
+            socketPlaceholder = sock;
+            opened = true;
+            openResolve?.();
+          },
         },
-        end() {
-          session?.die('socket ended');
+      }).then((connected) => {
+        // race 取消后，Bun.connect 仍可能迟到返回；必须独立回收，不依赖 TLS open。
+        socketPlaceholder = connected;
+        if (owner.closed || cancelled) {
+          connected.terminate();
+          throw new Error('connect cancelled');
+        }
+        return connected;
+      }), connectFailed]).catch((e: unknown) => {
+        clearTimeout(connectTimer);
+        throw e;
+      });
+      if (this.closed) {
+        socket.terminate();
+        throw new Error('client closed');
+      }
+      session = new AnytlsSession(socket, seq, this.opts.password, {
+        hooks: {
+          onDead: () => {
+            this.sessions.delete(seq);
+            this.idle.delete(seq);
+          },
+          onUpdatePaddingScheme: (raw) => this.updatePaddingScheme(raw),
+          onAlert: (msg) => log.warn(`[${this.name}] server alert: ${msg}`),
         },
-        error(_s, err) {
-          session?.die(String(err));
-        },
-        open(sock) {
-          socketPlaceholder = sock;
-          opened = true;
-          openResolve?.();
-        },
-      },
-    }), connectFailed]).catch((e: unknown) => {
+        padding: () => this.currentPadding(),
+        random: this.opts.random,
+        clientName: this.opts.clientName,
+      });
+      socketPlaceholder = socket;
+      // Bun.connect 在 TCP 建连即 resolve；TLS open 回调可迟至永不——超时保护必须覆盖握手等待
+      if (!opened) {
+        await Promise.race([openedPromise, connectFailed]);
+      }
+      openResolve = null;
       clearTimeout(connectTimer);
-      throw e;
-    });
-    session = new AnytlsSession(socket, seq, this.opts.password, {
-      hooks: {
-        onDead: () => {
-          this.sessions.delete(seq);
-          this.idle.delete(seq);
-        },
-        onUpdatePaddingScheme: (raw) => this.updatePaddingScheme(raw),
-        onAlert: (msg) => log.warn(`[${this.name}] server alert: ${msg}`),
-      },
-      padding: () => this.currentPadding(),
-      random: this.opts.random,
-      clientName: this.opts.clientName,
-    });
-    socketPlaceholder = socket;
-    // Bun.connect 在 TCP 建连即 resolve；TLS open 回调可迟至永不——超时保护必须覆盖握手等待
-    if (!opened) {
-      await Promise.race([openedPromise, connectFailed]);
+      if (this.closed) {
+        session.close();
+        throw new Error('client closed');
+      }
+      session.markConnected();
+      this.sessions.set(seq, session);
+      return session;
+    } finally {
+      clearTimeout(connectTimer);
+      this.pendingConnects.delete(cancel);
     }
-    openResolve = null;
-    clearTimeout(connectTimer);
-    session.markConnected();
-    this.sessions.set(seq, session);
-    return session;
   }
 
   /** 取空闲池中 seq 最大且未超载的会话；死/超载的顺手清理 */
@@ -173,6 +210,10 @@ export class AnytlsClient {
     if (this.closed) throw new Error('client closed');
     let session = this.takeIdle();
     if (!session) session = await this.createSession();
+    if (this.closed) {
+      session.close();
+      throw new Error('client closed');
+    }
     const openedTotal = session.openedStreams + 1;
     let stream;
     try {
@@ -201,7 +242,7 @@ export class AnytlsClient {
   }
 
   startCleanup(): void {
-    if (this.cleanupTimer) return;
+    if (this.closed || this.cleanupTimer) return;
     const interval = this.opts.idleSessionCheckIntervalMs ?? 30000;
     this.cleanupTimer = setInterval(() => this.cleanup(), interval);
   }
@@ -238,6 +279,8 @@ export class AnytlsClient {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    for (const cancel of this.pendingConnects) cancel();
+    this.pendingConnects.clear();
     if (this.cleanupTimer) clearInterval(this.cleanupTimer);
     for (const s of this.sessions.values()) s.close();
     this.sessions.clear();

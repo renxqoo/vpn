@@ -32,7 +32,7 @@ bun run config show                    # 查看当前生效配置与来源
 ```
 
 首次启动且没有订阅时：自动生成 `~/.vpn/config.yaml`（空订阅），以直连模式启动并打印引导，
-写入订阅后重启即走订阅。
+使用 `config set-subscription` 更新后会同步运行配置（旧版本内核需要先重启一次）。
 
 **dev 调试**：项目根放 `.env` 即优先于家目录配置：
 
@@ -71,7 +71,13 @@ curl -x http://127.0.0.1:7890 http://cp.cloudflare.com/generate204 -o /dev/null 
 rule-providers（http，domain/ipcidr/classical）都会被解析并生效。
 dns/sniffer/tun 等键在 V1 中忽略（有警告日志）。
 
-缓存目录 `~/.vpn/cache/`：订阅快照、rule-provider 规则集、geoip mmdb（跟随家目录，不污染启动位置）。
+缓存目录 `~/.vpn/cache/`：订阅快照按 URL 隔离、rule-provider 规则集、geoip mmdb（跟随家目录）。
+
+更新订阅地址用 `bun run cli config set-subscription 'https://...'`，会同时更新已配置订阅的
+项目 `.env` 与家目录配置，并同步运行中的节点、策略组及规则。新订阅会清除旧节点选择；
+同地址更新时保留仍有效的选择，移除失效项。`bun run cli nodes` 选择节点后也会刷新运行配置。
+直接编辑配置文件后，运行 `nodes` 或重启生效。重载保持监听端口和运行模式，会关闭旧代理连接；
+下载失败可使用同地址已验证的缓存，新地址不能使用旧地址的缓存。
 
 ## REST API（Clash 兼容子集）
 
@@ -81,6 +87,7 @@ dns/sniffer/tun 等键在 V1 中忽略（有警告日志）。
 | GET | /proxies | 全部代理与组 |
 | GET | /proxies/:name | 单个（含 now/all/history） |
 | PUT | /proxies/:name | `{"now":"节点名"}` 切换 select 组 |
+| POST | /configs/reload | 从当前进程配置来源重新加载订阅；204 成功，400 失败，409 刷新中 |
 | GET | /rules | 规则列表 |
 | GET | /connections | 活动连接 |
 | DELETE | /connections/:id | 关闭连接 |

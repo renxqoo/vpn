@@ -117,6 +117,7 @@ describe('buildRuntimeConfig：合并 + CLI 覆盖 → 启动配置', () => {
     '  type: select',
     '  proxies:',
     '    - DIRECT',
+    '    - 台湾 01',
     'rules:',
     '  - MATCH,DIRECT',
   ].join('\n');
@@ -133,6 +134,7 @@ describe('buildRuntimeConfig：合并 + CLI 覆盖 → 启动配置', () => {
     expect(cfg.config.proxies.length).toBe(1);
     expect(cfg.config.httpPort).toBe(17899);
     expect(cfg.settings.selectedNode).toBe('台湾 01');
+    expect(cfg.config.groups[0]?.proxies[0]).toBe('台湾 01');
     expect(cfg.sourceLabel).toContain('.env');
   });
 
@@ -151,7 +153,8 @@ describe('buildRuntimeConfig：合并 + CLI 覆盖 → 启动配置', () => {
       }),
       subscriptionYaml: subYaml,
     });
-    expect(cfg.settings.selectedNode).toBe('不存在的节点');
+    // 失效选择不能继续作为生效配置展示（旧行为会显示已删除节点）。
+    expect(cfg.settings.selectedNode).toBeUndefined();
     expect(cfg.warnings.some((w) => w.includes('不存在的节点'))).toBe(true);
   });
 });
@@ -160,3 +163,25 @@ void mkdirSync;
 void writeFileSync;
 void readFileSync;
 void cwd;
+
+test('subscription changes cannot retain an unsupported node as the effective selection', async () => {
+  const runtime = await buildRuntimeConfig({
+    files: inputs({ homeConfigText: "subscription-url: 'https://s.test/sub'\nselected-node: '旧节点'\n" }),
+    subscriptionYaml: `proxies:
+  - {name: 旧节点, type: vmess}
+  - {name: 新节点, type: anytls, server: new.test, port: 443, password: pw}
+proxy-groups:
+  - {name: 🚀 节点选择, type: select, proxies: [旧节点, 新节点]}
+rules:
+  - MATCH,🚀 节点选择
+`,
+  });
+  expect(runtime.settings.selectedNode).toBeUndefined();
+  expect(runtime.warnings.length).toBe(1);
+});
+
+test('effective subscription URL decodes escaped quotes written by set-subscription', () => {
+  expect(mergeSource(inputs({
+    homeConfigText: "subscription-url: 'https://example.test/sub?token=a''b$&'\n",
+  })).subscriptionUrl).toBe("https://example.test/sub?token=a'b$&");
+});

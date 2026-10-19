@@ -6,10 +6,11 @@
  */
 
 import * as p from '@clack/prompts';
-import { collectFileInputs, mergeSource } from './settings.ts';
-import { parseClashConfig } from '../config/clash.ts';
+import { buildRuntimeConfig, collectFileInputs, mergeSource } from './settings.ts';
 import { HOME_CONFIG_PATH, cacheDirectory } from './paths.ts';
 import { defaultStore, loadSubscription } from '../config/subscription.ts';
+import { resolveController } from './controller.ts';
+import { hotReload } from './reload.ts';
 import type { AnytlsProxyConfig, ProxyConfig } from '../config/clash.ts';
 
 const GROUP_LABEL = '🚀 节点选择';
@@ -51,7 +52,7 @@ export async function writeSelectedNode(nodeName: string | null): Promise<string
   if (nodeName === null) {
     text = text.replace(/^selected-node:.*$\n?/m, '');
   } else if (/^selected-node:.*$/m.test(text)) {
-    text = text.replace(/^selected-node:.*$/m, `selected-node: '${nodeName.replace(/'/g, "''")}'`);
+    text = text.replace(/^selected-node:.*$/m, () => `selected-node: '${nodeName.replace(/'/g, "''")}'`);
   } else {
     text = `selected-node: '${nodeName.replace(/'/g, "''")}'\n${text}`;
   }
@@ -71,18 +72,22 @@ export async function readSelectedNode(): Promise<string | null> {
 }
 
 /** 热切换（内核运行时）：返回 'switched' | 'not-running' | 'failed' */
-export async function hotSwitch(apiPort: number, nodeName: string): Promise<'switched' | 'not-running' | 'failed'> {
+export async function hotSwitch(
+  apiPort: number, nodeName: string, secret = '',
+): Promise<'switched' | 'not-running' | 'failed'> {
+  const headers = secret ? { authorization: `Bearer ${secret}` } : undefined;
   let alive = false;
   try {
-    const probe = await fetch(`http://127.0.0.1:${apiPort}/version`, { signal: AbortSignal.timeout(1500) });
+    const probe = await fetch(`http://127.0.0.1:${apiPort}/version`, { headers, signal: AbortSignal.timeout(1500) });
     alive = probe.ok;
   } catch (_e) {
     return 'not-running';
   }
-  if (!alive) return 'not-running';
+  if (!alive) return 'failed';
   try {
     const res = await fetch(`http://127.0.0.1:${apiPort}/proxies/${encodeURIComponent(GROUP_LABEL)}`, {
       method: 'PUT',
+      headers,
       body: JSON.stringify({ now: nodeName }),
       signal: AbortSignal.timeout(3000),
     });
@@ -96,14 +101,17 @@ export async function runNodesCommand(
   apiPortArg?: number,
   directPick?: string,
 ): Promise<void> {
-  const src = mergeSource(await collectFileInputs());
+  const files = await collectFileInputs();
+  const src = mergeSource(files);
   if (!src.subscriptionUrl) {
     p.intro('bun-clash 节点选择');
     p.cancel('未配置订阅地址（.env 或 bun run config set-subscription）');
     process.exit(1);
   }
-  const text = await loadSubscription(src.subscriptionUrl, defaultStore(cacheDirectory()));
-  const cfg = parseClashConfig(text);
+  const text = await loadSubscription(src.subscriptionUrl, defaultStore(cacheDirectory(), src.subscriptionUrl));
+  const runtime = await buildRuntimeConfig({ files, subscriptionYaml: text });
+  const cfg = runtime.config;
+  if (src.selectedNode && !runtime.settings.selectedNode) await writeSelectedNode(null);
   const nodes = listSelectableNodes(cfg.proxies);
   if (nodes.length === 0) {
     p.intro('bun-clash 节点选择');
@@ -111,13 +119,15 @@ export async function runNodesCommand(
     process.exit(1);
   }
   const groups = groupByRegion(nodes);
-  const current = await readSelectedNode();
-  const apiPort = apiPortArg ?? src.apiPort ?? 9090;
+  const current = runtime.settings.selectedNode;
+  const { apiPort, secret } = await resolveController(
+    runtime.overrides.apiPort, runtime.config.apiSecret, apiPortArg,
+  );
   if (directPick !== undefined) {
-    await applyPick(directPick, apiPort, nodes);
+    await applyPick(directPick, apiPort, nodes, secret);
     return;
   }
-  const healthByNode = await fetchNodeHealth(apiPort);
+  const healthByNode = await fetchNodeHealth(apiPort, secret);
 
   p.intro('bun-clash 节点选择');
   type Opt = { value: { group: boolean; label: string }; label: string; hint?: string };
@@ -139,7 +149,7 @@ export async function runNodesCommand(
     message: `选择节点${current ? `（当前: ${current}）` : ''}`,
     options,
     initialValue: currentEntry
-      ? { group: false, label: currentEntry.name }
+      ? options.find((o) => !o.value.group && o.value.label === currentEntry.name)?.value
       : undefined,
   });
 
@@ -148,30 +158,43 @@ export async function runNodesCommand(
     process.exit(1);
   }
   const nodeName = (selected as { label: string }).label;
-  await applyPick(nodeName, apiPort);
+  await applyPick(nodeName, apiPort, nodes, secret);
 }
 
 /** 选中后共享路径：校验存在 → 落库 → 热切换 → 结果输出 */
-async function applyPick(nodeName: string, apiPort: number, nodes?: NodeEntry[]): Promise<void> {
+async function applyPick(
+  nodeName: string, apiPort: number, nodes?: NodeEntry[], secret = '',
+): Promise<void> {
   if (nodes && !nodes.some((n) => n.name === nodeName)) {
     p.cancel(`节点不存在: ${nodeName}（可用节点见 bun-clash nodes 交互列表）`);
     process.exit(1);
   }
   const path = await writeSelectedNode(nodeName);
-  const hot = await hotSwitch(apiPort, nodeName);
+  const reload = await hotReload(apiPort, secret);
+  const hot = reload === 'reloaded' ? await hotSwitch(apiPort, nodeName, secret) : reload;
   const note =
     hot === 'switched'
-      ? `已写入 ${path} 并热切换生效（无需重启）`
+      ? `已写入 ${path}，订阅已刷新并热切换生效（无需重启）`
       : hot === 'not-running'
         ? `已写入 ${path}（内核未运行，下次启动生效）`
         : `已写入 ${path}，但热切换失败（内核运行中但切换未成功，重启后生效）`;
-  p.outro(`✓ 节点: ${nodeName}\n${note}`);
+  if (hot === 'failed') {
+    p.cancel(note);
+    process.exitCode = 1;
+  } else {
+    p.outro(`✓ 节点: ${nodeName}\n${note}`);
+  }
 }
 
-async function fetchNodeHealth(apiPort: number): Promise<Record<string, { alive: boolean; delay: number | null }>> {
+async function fetchNodeHealth(
+  apiPort: number, secret = '',
+): Promise<Record<string, { alive: boolean; delay: number | null }>> {
   const out: Record<string, { alive: boolean; delay: number | null }> = {};
   try {
-    const res = await fetch(`http://127.0.0.1:${apiPort}/proxies`, { signal: AbortSignal.timeout(1500) });
+    const res = await fetch(`http://127.0.0.1:${apiPort}/proxies`, {
+      headers: secret ? { authorization: `Bearer ${secret}` } : undefined,
+      signal: AbortSignal.timeout(1500),
+    });
     if (!res.ok) return out;
     const data = (await res.json()) as {
       proxies: Record<string, { health?: { alive: boolean; delay: number | null } | null }>;

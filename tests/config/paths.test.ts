@@ -14,12 +14,17 @@ import { DEFAULT_CONFIG_YAML } from '../../src/config/defaults.ts';
 const realHome = process.env.HOME as string;
 const realProfile = process.env.USERPROFILE as string | undefined;
 const tmpHome = mkdtempSync(join(tmpdir(), 'vpn-home-'));
+const oldCwd = process.cwd();
+const tmpCwd = mkdtempSync(join(tmpdir(), 'vpn-paths-cwd-'));
 
 beforeAll(() => {
+  process.chdir(tmpCwd);
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
 });
 afterAll(() => {
+  process.chdir(oldCwd);
+  rmSync(tmpCwd, { recursive: true, force: true });
   process.env.HOME = realHome;
   if (realProfile !== undefined) process.env.USERPROFILE = realProfile;
   else delete process.env.USERPROFILE;
@@ -93,4 +98,36 @@ describe('env overrides', () => {
       else if (!had) rmSync(envPath);
     }
   });
+});
+
+describe('subscription source updates', () => {
+  test('set-subscription replaces overriding .env URL and clears a previous provider selection', async () => {
+    const envPath = join(tmpCwd, '.env');
+    const path = join(tmpHome, '.vpn', 'config.yaml');
+    writeFileSync(envPath, '# keep\nSUBSCRIPTION_URL=https://old.test/sub\nPORT=17890\n');
+    writeFileSync(path, "subscription-url: 'https://home.test/sub'\nselected-node: '旧节点'\nmode: global\n");
+    try {
+      await setSubscription('https://new.test/sub');
+      const envText = readFileSync(envPath, 'utf8');
+      expect(parseDotEnv(envText)['SUBSCRIPTION_URL']).toBe('https://new.test/sub');
+      expect(envText).toContain('# keep\n');
+      expect(envText).toContain('PORT=17890');
+      expect(readFileSync(path, 'utf8')).not.toContain('selected-node:');
+      expect(readFileSync(path, 'utf8')).toContain('mode: global');
+      writeFileSync(path, readFileSync(path, 'utf8') + "selected-node: '有效节点'\n");
+      await setSubscription('https://new.test/sub');
+      expect(readFileSync(path, 'utf8')).toContain("selected-node: '有效节点'");
+    } finally {
+      rmSync(envPath, { force: true });
+    }
+  });
+});
+
+test('subscription URL quoting preserves literal replacement tokens and selected node on the same URL', async () => {
+  const url = "https://example.test/sub?token=a'b$&";
+  const path = await setSubscription(url);
+  expect(extractSubscriptionUrl(await Bun.file(path).text()).url).toBe(url);
+  await Bun.write(path, (await Bun.file(path).text()) + "selected-node: 'keep'\n");
+  await setSubscription(url);
+  expect(await Bun.file(path).text()).toContain("selected-node: 'keep'");
 });

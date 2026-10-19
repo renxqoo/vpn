@@ -3,7 +3,9 @@ import { logger, setLogLevel } from './core/log.ts';
 import { buildRuntimeConfig, collectFileInputs, mergeSource } from './config/settings.ts';
 import { cacheDirectory } from './config/paths.ts';
 import { defaultStore, loadSubscription } from './config/subscription.ts';
+import { writeController } from './config/controller.ts';
 import { App } from './app.ts';
+import { writeSelectedNode } from './config/nodes.ts';
 
 const log = logger('start');
 
@@ -35,14 +37,20 @@ export async function runStart(argv: string[]): Promise<void> {
   const cacheDir = cacheDirectory();
   await Bun.write(join(cacheDir, '.keep'), '').catch(() => {});
 
-  const files = await collectFileInputs();
-  const settings = mergeSource(files);
-  let subscriptionYaml: string | null = null;
-  if (settings.subscriptionUrl && !args.direct) {
-    subscriptionYaml = await loadSubscription(settings.subscriptionUrl, defaultStore(cacheDir));
-  }
-
-  const runtime = await buildRuntimeConfig({ files, subscriptionYaml, cli: args });
+  const loadRuntime = async () => {
+    const files = await collectFileInputs();
+    const settings = mergeSource(files);
+    let subscriptionYaml: string | null = null;
+    if (settings.subscriptionUrl && !args.direct) {
+      subscriptionYaml = await loadSubscription(
+        settings.subscriptionUrl, defaultStore(cacheDir, settings.subscriptionUrl),
+      );
+    }
+    const runtime = await buildRuntimeConfig({ files, subscriptionYaml, cli: args });
+    return { runtime, settings };
+  };
+  const initial = await loadRuntime();
+  const runtime = initial.runtime;
   const raw = runtime.config.logLevel;
   const allowed = new Set(['debug', 'info', 'warn', 'error', 'silent']);
   setLogLevel(allowed.has(raw as never) ? (raw as 'info') : 'info');
@@ -52,8 +60,21 @@ export async function runStart(argv: string[]): Promise<void> {
     log.warn('写入订阅: bun-clash config set-subscription <URL>，然后重启');
   }
 
-  const app = new App({ config: runtime.config, cacheDir, overrides: runtime.overrides });
+  const app = new App({
+    config: runtime.config,
+    cacheDir,
+    overrides: runtime.overrides,
+    reloadConfig: async () => {
+      const next = await loadRuntime();
+      if (!args.direct && next.settings.selectedNode && !next.runtime.settings.selectedNode) {
+        await writeSelectedNode(null);
+      }
+      await app.reload(next.runtime.config);
+    },
+  });
   await app.start();
+  await writeController(app.apiPortForTest, runtime.config.apiSecret);
+  if (initial.settings.selectedNode && !runtime.settings.selectedNode && !args.direct) await writeSelectedNode(null);
   const modeLabel = { rule: '规则', global: '全局', direct: '直连' }[app.currentMode()] ?? app.currentMode();
   log.info(`配置来源: ${runtime.sourceLabel}；模式: ${modeLabel}`);
 

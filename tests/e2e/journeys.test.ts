@@ -253,3 +253,52 @@ describe('e2e: http inbound → rules → anytls → test servers', () => {
     { timeout: 10000 },
   );
 });
+
+test('subscription reload replaces endpoint and rules without rebinding listeners', async () => {
+  const config = CONFIG();
+  config.proxies = [{
+    kind: 'anytls', name: 'same-name', server: '127.0.0.1', port: serverA.port, password: 'pw-a',
+    skipCertVerify: true, udp: false,
+    idleSessionCheckIntervalSec: 30, idleSessionTimeoutSec: 30, minIdleSession: 5,
+  }];
+  config.groups = [{ name: '🚀 节点选择', type: 'select', proxies: ['same-name'] }];
+  config.rules = [{ type: 'MATCH', payload: '', target: 'same-name', noResolve: false, raw: '' }];
+  const local = new App({ config, cacheDir: '/tmp/bunclash-reload-cache' });
+  await local.start();
+  const httpPort = local.httpPort;
+  const apiPort = local.apiPortForTest;
+  const socksPort = local.socksPortForTest;
+  try {
+    const first = await connectViaTunnel(httpPort, 'before-reload.test', 80);
+    first.send('before-reload');
+    expect(await first.recvAll(5000)).toBe('before-reload');
+    expect(serverA.events.targets).toContain('before-reload.test:80');
+    const updated = CONFIG();
+    updated.proxies = [{ ...config.proxies[0]!, port: serverB.port, password: 'pw-b' } as never];
+    updated.groups = [{ name: 'new-group', type: 'select', proxies: ['same-name'] }];
+    updated.rules = [{ type: 'MATCH', payload: '', target: 'new-group', noResolve: false, raw: '' }];
+    local.setMode('global');
+    await local.reload(updated);
+    expect(local.currentMode()).toBe('global');
+    expect(local.httpPort).toBe(httpPort);
+    expect(local.apiPortForTest).toBe(apiPort);
+    expect(local.socksPortForTest).toBe(socksPort);
+    expect(local.outboundOf('🚀 节点选择')).toBeUndefined();
+    const rules = await (await fetch(`http://127.0.0.1:${apiPort}/rules`)).json() as {
+      rules: { target: string }[];
+    };
+    expect(rules.rules[0]?.target).toBe('new-group');
+    const second = await connectViaTunnel(httpPort, 'after-reload.test', 80);
+    second.send('after-reload');
+    expect(await second.recvAll(5000)).toBe('after-reload');
+    expect(serverB.events.targets).toContain('after-reload.test:80');
+    local.setMode('rule');
+    const third = await connectViaTunnel(httpPort, 'new-rule.test', 80);
+    third.send('new-rule');
+    expect(await third.recvAll(5000)).toBe('new-rule');
+    expect(serverB.events.targets).toContain('new-rule.test:80');
+  } finally {
+    await local.stop();
+  }
+  await expect(local.reload(config)).rejects.toThrow('app stopped');
+}, { timeout: 20000 });

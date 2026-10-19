@@ -33,6 +33,7 @@ export class RuleProviders {
   private store: ProviderStore;
   private runtime = new Map<string, { resolved: ResolvedRuleSet; loadedAt: number }>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  private stopped = false;
 
   constructor(configs: Map<string, RuleProviderConfig>, store: ProviderStore) {
     this.configs = configs;
@@ -56,7 +57,7 @@ export class RuleProviders {
     await Promise.all([...this.configs.entries()].map(([name, cfg]) => this.loadOne(name, cfg)));
     const intervals = [...this.configs.values()].map((c) => c.interval);
     const minInterval = Math.min(...intervals.filter((n) => Number.isFinite(n)), 86400);
-    if (intervals.length > 0) {
+    if (!this.stopped && intervals.length > 0) {
       this.timer = setInterval(() => {
         void this.refreshDue();
       }, minInterval * 1000);
@@ -136,6 +137,7 @@ export class RuleProviders {
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
   }

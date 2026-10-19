@@ -97,9 +97,9 @@ export async function ensureHomeConfig(): Promise<string> {
 
 /** 从家目录配置读订阅地址（同 main 旧逻辑：subscription-url 键提取，余下为 Clash YAML） */
 export function extractSubscriptionUrl(text: string): { url?: string; yaml: string } {
-  const m = /^subscription-url:\s*'?([^'\n]+)'?\s*$/m.exec(text);
+  const m = /^subscription-url:[ \t]*(?:'((?:[^'\n]|'')*)'|([^\n]*?))[ \t]*$/m.exec(text);
   const yaml = text.replace(/^subscription-url:.*$\n?/m, '');
-  return { url: m?.[1]?.trim() || undefined, yaml };
+  return { url: (m?.[1]?.replace(/''/g, "'") ?? m?.[2])?.trim() || undefined, yaml };
 }
 
 /** 把订阅地址写入家目录配置（保留其余行） */
@@ -111,11 +111,21 @@ export async function setSubscription(url: string): Promise<string> {
   if (await f.exists()) {
     text = await f.text();
   }
+  const envFile = Bun.file(DOTENV_PATH());
+  const envText = (await envFile.exists()) ? await envFile.text() : null;
+  const envUrl = envText === null ? undefined : parseDotEnv(envText)['SUBSCRIPTION_URL'];
+  const previousUrl = envUrl || extractSubscriptionUrl(text).url;
+  if (previousUrl !== url) text = text.replace(/^selected-node:.*$\n?/gm, '');
+  const quotedUrl = url.replace(/'/g, "''");
   if (/^subscription-url:.*$/m.test(text)) {
-    text = text.replace(/^subscription-url:.*$/m, `subscription-url: '${url}'`);
+    text = text.replace(/^subscription-url:.*$/m, () => `subscription-url: '${quotedUrl}'`);
   } else {
-    text = `subscription-url: '${url}'\n${text}`;
+    text = `subscription-url: '${quotedUrl}'\n${text}`;
   }
   await writePrivate(path, text);
+  if (envText !== null && envUrl) {
+    const updated = envText.replace(/^\s*SUBSCRIPTION_URL\s*=.*$/gm, () => `SUBSCRIPTION_URL=${url}`);
+    await writePrivate(DOTENV_PATH(), updated);
+  }
   return path;
 }

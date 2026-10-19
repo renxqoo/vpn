@@ -25,7 +25,7 @@ const SELECTED_NODE_RE = /^selected-node:\s*(?:'((?:[^']|'')*)'|([^\n]+?))\s*$/m
 const MODE_RE = /^mode:\s*(\S+)/m;
 const PORT_RE = /^port:\s*(\d+)\s*$/m;
 const SOCKS_PORT_RE = /^socks-port:\s*(\d+)\s*$/m;
-const SUB_URL_RE = /^subscription-url:\s*(?:'([^'\n]*)'|([^\n]+?))\s*$/m;
+const SUB_URL_RE = /^subscription-url:[ \t]*(?:'((?:[^'\n]|'')*)'|([^\n]*?))[ \t]*$/m;
 
 function firstGroup(m: RegExpMatchArray | null): string | undefined {
   if (!m) return undefined;
@@ -34,7 +34,8 @@ function firstGroup(m: RegExpMatchArray | null): string | undefined {
 
 /** 家目录配置文本 → 键集（settings 语义，与 Clash YAML 体的解析解耦） */
 export function parseHomeKeys(text: string): RuntimeSettings {
-  const sub = firstGroup(SUB_URL_RE.exec(text));
+  const subMatch = SUB_URL_RE.exec(text);
+  const sub = (subMatch?.[1]?.replace(/''/g, "'") ?? subMatch?.[2])?.trim() || undefined;
   const selMatch = SELECTED_NODE_RE.exec(text);
   const selectedNode = selMatch ? (selMatch[1]?.replace(/''/g, "'") ?? selMatch[2]?.trim()) || undefined : undefined;
   const modeRaw = firstGroup(MODE_RE.exec(text));
@@ -153,14 +154,17 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
   if (settings.selectedNode) {
     const group = finalConfig.groups.find((g) => g.name === '🚀 节点选择');
     const wanted = settings.selectedNode;
-    if (group && wanted !== undefined && group.proxies.includes(wanted)) {
+    if (group && group.type === 'select' && group.proxies.includes(wanted) &&
+      finalConfig.proxies.some((p) => p.kind === 'anytls' && p.name === wanted)) {
       reorderGroupFirst(group, wanted);
     } else if (group) {
       const msg = `selected-node '${settings.selectedNode}' 不在节点选择组内，已忽略`;
       warnings.push(msg);
       log.warn(msg);
+      settings.selectedNode = undefined;
     } else {
-      warnings.push(`订阅无 '🚀 节点选择' 组，selected-node 未生效`);
+      warnings.push(`订阅无可用的 '🚀 节点选择' 组，selected-node 未生效`);
+      settings.selectedNode = undefined;
     }
   }
 
@@ -174,7 +178,7 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
 
   return {
     config: finalConfig,
-    settings: { ...settings, selectedNode: settings.selectedNode },
+    settings: { ...settings },
     overrides: {
       httpPort: finalConfig.httpPort,
       socksPort: finalConfig.socksPort,
