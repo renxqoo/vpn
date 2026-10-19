@@ -63,7 +63,7 @@ for (const g of GLOBS) {
           '^src\\/config\\/mode\\.ts',
         ].join('|'),
       );
-      if (!consoleOk.test(path) && /\bconsole\./.test(line)) {
+      if (!consoleOk.test(normPath) && /\bconsole\./.test(line)) {
         issues.push({ file: normPath, line: lineNo, rule: 'R3', msg: 'no console.* (use core/log)' });
       }
       // R4 待办标记禁止（不留占位代码）；标记词用拼接避免自举触发
