@@ -29,7 +29,8 @@ function stripStrings(line: string): string {
 for (const g of GLOBS) {
   for await (const path of new Glob(g).scan({ cwd: ROOT, onlyFiles: true })) {
     files++;
-    const full = ROOT + '/' + path;
+    const normPath = path.replace(/\\/g, '/');
+    const full = ROOT + '/' + normPath;
     const text = await Bun.file(full).text();
     const lines = text.split('\n').map((l) => l.replace(/\r$/, ''));
     let inBlockComment = false;
@@ -47,10 +48,10 @@ for (const g of GLOBS) {
       const BARE_CATCH = /\bcatch\s*\{/;
       if (!inCommentCtx) {
         if (ANY_PAT.test(line)) {
-          issues.push({ file: path, line: lineNo, rule: 'R1', msg: 'no `any` type' });
+          issues.push({ file: normPath, line: lineNo, rule: 'R1', msg: 'no `any` type' });
         }
         if (BARE_CATCH.test(line) || /catch\s*\(\s*\)/.test(line)) {
-          issues.push({ file: path, line: lineNo, rule: 'R2', msg: 'bare `catch` without error binding' });
+          issues.push({ file: normPath, line: lineNo, rule: 'R2', msg: 'bare `catch` without error binding' });
         }
       }
       // R3 console.*（tools/main/log 免检）
@@ -63,16 +64,16 @@ for (const g of GLOBS) {
         ].join('|'),
       );
       if (!consoleOk.test(path) && /\bconsole\./.test(line)) {
-        issues.push({ file: path, line: lineNo, rule: 'R3', msg: 'no console.* (use core/log)' });
+        issues.push({ file: normPath, line: lineNo, rule: 'R3', msg: 'no console.* (use core/log)' });
       }
       // R4 待办标记禁止（不留占位代码）；标记词用拼接避免自举触发
       const MARK = new RegExp('\\b(' + ['TO', 'DO'].join('') + '|' + ['FIX', 'ME'].join('') + ')\\b');
       if (MARK.test(raw)) {
-        issues.push({ file: path, line: lineNo, rule: 'R4', msg: 'placeholder markers not allowed' });
+        issues.push({ file: normPath, line: lineNo, rule: 'R4', msg: 'placeholder markers not allowed' });
       }
       // R5 超长行
       if (raw.length > MAX_LINE) {
-        issues.push({ file: path, line: lineNo, rule: 'R5', msg: `line too long (${raw.length} > ${MAX_LINE})` });
+        issues.push({ file: normPath, line: lineNo, rule: 'R5', msg: `line too long (${raw.length} > ${MAX_LINE})` });
       }
     });
   }
