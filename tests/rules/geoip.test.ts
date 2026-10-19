@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { fileURLToPath } from 'node:url';
 import { MmdbReader } from '../../src/rules/geoip.ts';
 
 const buf = new Uint8Array(
-  await Bun.file(new URL('../fixtures/country-test.mmdb', import.meta.url).pathname).arrayBuffer(),
+  await Bun.file(fileURLToPath(new URL('../fixtures/country-test.mmdb', import.meta.url))).arrayBuffer(),
 );
 const reader = new MmdbReader(buf);
 
