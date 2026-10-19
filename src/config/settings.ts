@@ -25,7 +25,7 @@ const SELECTED_NODE_RE = /^selected-node:\s*(?:'((?:[^']|'')*)'|([^\n]+?))\s*$/m
 const MODE_RE = /^mode:\s*(\S+)/m;
 const PORT_RE = /^port:\s*(\d+)\s*$/m;
 const SOCKS_PORT_RE = /^socks-port:\s*(\d+)\s*$/m;
-const SUB_URL_RE = /^subscription-url:\s*(?:'([^'\n]+)'|([^\n]+?))\s*$/m;
+const SUB_URL_RE = /^subscription-url:\s*(?:'([^'\n]*)'|([^\n]+?))\s*$/m;
 
 function firstGroup(m: RegExpMatchArray | null): string | undefined {
   if (!m) return undefined;
@@ -41,7 +41,8 @@ export function parseHomeKeys(text: string): RuntimeSettings {
   const mode = modeRaw === 'global' || modeRaw === 'direct' ? modeRaw : 'rule';
   const port = Number(firstGroup(PORT_RE.exec(text)));
   const socks = Number(firstGroup(SOCKS_PORT_RE.exec(text)));
-  const secret = firstGroup(/^secret:\s*(?:'([^'\n]+)'|([^\n]+?))?\s*$/m.exec(text)) ?? '';
+  const secretMatch = /^secret:\s*(?:'([^'\n]*)'|"([^"\n]*)"|([^\n]*?))\s*$/m.exec(text);
+  const secret = (secretMatch?.[1] ?? secretMatch?.[2] ?? secretMatch?.[3] ?? '').trim();
   return {
     subscriptionUrl: sub,
     selectedNode,
@@ -63,7 +64,13 @@ export function mergeSource(files: FileInputs): RuntimeSettings {
     const n = Number(v);
     return v !== undefined && v !== '' && Number.isInteger(n) && n > 0 ? n : undefined;
   };
-  const envUrl = kv['SUBSCRIPTION_URL'] || undefined;
+  const envUrlRaw = kv['SUBSCRIPTION_URL'] || undefined;
+  const envUrl = envUrlRaw !== undefined && !/^https:\/\//.test(envUrlRaw)
+    ? (() => {
+        log.warn('.env SUBSCRIPTION_URL 非 https:// 已拒绝（明文订阅可被整体替换）');
+        return undefined;
+      })()
+    : envUrlRaw;
   const subscriptionUrl = envUrl ?? home.subscriptionUrl;
   const source: RuntimeSettings['source'] = envUrl ? 'dotenv' : home.subscriptionUrl ? 'home' : 'empty';
   return {

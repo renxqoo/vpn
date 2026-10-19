@@ -9,6 +9,7 @@ import {
 } from '../../src/rules/providers.ts';
 import { parsePaddingScheme, planChunks, makeWasteFrame } from '../../src/outbound/anytls/padding.ts';
 import { parseHomeKeys, mergeSource } from '../../src/config/settings.ts';
+import { DEFAULT_CONFIG_YAML } from '../../src/config/defaults.ts';
 
 const tmp = mkdtempSync(join(tmpdir(), 'sec-'));
 describe('provider cache path traversal', () => {
@@ -69,6 +70,16 @@ describe('padding scheme bounds (server-controlled input)', () => {
 });
 
 describe('home config secret key honored', () => {
+  test('empty quoted secret normalizes to empty string (template default)', () => {
+    const k = parseHomeKeys("secret: ''");
+    expect(k.secret).toBe('');
+    const fromTemplate = parseHomeKeys(DEFAULT_CONFIG_YAML);
+    expect(fromTemplate.secret).toBe('');
+  });
+  test('empty home secret does not override subscription secret', () => {
+    const m = mergeSource({ homeConfigText: "secret: ''", dotenvText: null });
+    expect(m.secret).toBe('');
+  });
   test('parseHomeKeys extracts secret', () => {
     const k = parseHomeKeys("subscription-url: 'https://s/x'\nsecret: 'abc123'\nmode: rule");
     expect(k.secret).toBe('abc123');

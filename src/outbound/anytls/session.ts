@@ -126,7 +126,8 @@ export class AnytlsSession {
       /* already closed */
     }
     this.opts.hooks.onDead();
-    log.warn(`session ${this.seq} dead: ${reason}`);
+    const level = reason === 'local close' ? 'debug' : 'warn';
+    log[level](`session ${this.seq} dead: ${reason}`);
   }
 
   get dieInfo(): string {
@@ -278,7 +279,11 @@ export class AnytlsSession {
 
   /** 控制帧入队（同样走 padding 写路径——参考实现 writeControlFrame 也经 writeConn） */
   private writeFrames(...frames: Uint8Array[]): void {
-    void this.enqueue(frames, true);
+    this.enqueue(frames, true).catch((e: unknown) => {
+      // 会话死亡/写队列溢出时控制帧（SYN/FIN/心跳应答）无法送达：会话已被 die() 终结，
+      // 这里只留痕防止未处理 rejection 击杀进程
+      log.debug(`control frame dropped on dying session ${this.seq}: ${String(e).slice(0, 60)}`);
+    });
   }
 
   /** 入队；applyPadding=true 时数据帧走 padding 分包。队列字节超界 = 上游拥塞失控，断会话（与接收方向对称） */
