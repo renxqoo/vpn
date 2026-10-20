@@ -3,29 +3,39 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const CLI = resolve(import.meta.dir, '../../src/cli.ts');
+const ROOT = resolve(import.meta.dir, '../..');
 
-async function probe(label: string, cmd: string[]) {
-  const home = mkdtempSync(join(tmpdir(), 'vpn-diag2-'));
+async function probe(label: string, script: string) {
+  const home = mkdtempSync(join(tmpdir(), 'vpn-diag3-'));
+  const scriptPath = join(home, 'probe.ts');
   try {
-    const child = Bun.spawn([process.execPath, ...cmd], {
+    await Bun.write(scriptPath, script);
+    const child = Bun.spawn([process.execPath, scriptPath], {
       cwd: home, env: { ...process.env, HOME: home, USERPROFILE: home },
       stdout: 'pipe', stderr: 'pipe', stdin: 'ignore',
     });
-    const timer = setTimeout(() => child.kill(), 4000);
+    const timer = setTimeout(() => child.kill(), 6000);
     const [code, out, err] = await Promise.all([
       child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
     ]);
     clearTimeout(timer);
     const head = (s: string, n: number) => JSON.stringify(s.slice(0, n));
-    console.log(`=== D2 ${label}: exit=${JSON.stringify(code)} out=${head(out, 150)} err=${head(err, 300)}`);
+    console.log(`=== D3 ${label}: exit=${JSON.stringify(code)} out=${head(out, 100)} err=${head(err, 400)}`);
   } finally { rmSync(home, { recursive: true, force: true }); }
 }
 
-test('DIAG2: spawn shapes on this platform', async () => {
-  console.log('=== D2 platform:', process.platform, 'execPath:', process.execPath);
-  await probe('cli-help', [CLI, 'help']);
-  await probe('cli-badcmd', [CLI, 'definitely-not-a-command']);
-  await probe('e-string', ['-e', 'console.log("E_WORKS")']);
+test('DIAG3: import-graph bisection', async () => {
+  console.log('=== D3 platform:', process.platform, 'root:', ROOT);
+  await probe('import-start-only',
+    `await import(${JSON.stringify(join(ROOT, 'src/start.ts'))});\nconsole.log('IMPORT_OK');\n`);
+  await probe('import-app',
+    `await import(${JSON.stringify(join(ROOT, 'src/app.ts'))});\nconsole.log('IMPORT_OK');\n`);
+  const args = `'start', '--direct', '--no-system-proxy', '--port', '0', '--socks-port', '0', '--api-port', '0'`;
+  await probe('run-start-direct', `
+process.argv = [process.execPath, 'cli', ${args}];
+const { runStart } = await import(${JSON.stringify(join(ROOT, 'src/start.ts'))});
+await runStart(process.argv.slice(2));
+console.log('RUNSTART_RETURNED');
+`);
   expect(true).toBe(true);
-}, 30_000);
+}, 60_000);
