@@ -17,7 +17,8 @@ async function probe(label: string, cmd: string[]) {
       child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
     ]);
     clearTimeout(timer);
-    console.log(`=== D2 ${label}: exit=${JSON.stringify(code)} out=${JSON.stringify(out.slice(0, 150))} err=${JSON.stringify(err.slice(0, 300))}`);
+    const head = (s: string, n: number) => JSON.stringify(s.slice(0, n));
+    console.log(`=== D2 ${label}: exit=${JSON.stringify(code)} out=${head(out, 150)} err=${head(err, 300)}`);
   } finally { rmSync(home, { recursive: true, force: true }); }
 }
 
