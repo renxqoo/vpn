@@ -3,29 +3,28 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const CLI = resolve(import.meta.dir, '../../src/cli.ts');
+const ROOT = resolve(import.meta.dir, '../..');
 
-test('DIAG8: main-dispatch trace via preload argv observation', async () => {
-  const home = mkdtempSync(join(tmpdir(), 'vpn-diag8-'));
-  const preload = join(home, 'trace.ts');
+async function runMain(label: string, mainTs: string) {
+  const home = mkdtempSync(join(tmpdir(), 'vpn-diag9-'));
+  const main = join(home, 'main.ts');
   try {
-    await Bun.write(preload, `
-console.log('T0 preload');
-process.on('exit', (c) => console.log('T_EXIT', c));
-console.log('T1 argv', JSON.stringify(process.argv.slice(2)));
-setTimeout(() => console.log('T2 tick1s'), 1000).unref?.();
-`);
-    const child = Bun.spawn([process.execPath, '--preload', preload, CLI, 'start', '--direct',
-      '--no-system-proxy', '--port', '0', '--socks-port', '0', '--api-port', '0'], {
+    await Bun.write(main, mainTs);
+    const child = Bun.spawn([process.execPath, main, 'start', '--direct'], {
       cwd: home, env: { ...process.env, HOME: home, USERPROFILE: home },
       stdout: 'pipe', stderr: 'pipe', stdin: 'ignore',
     });
-    const code = await Promise.race([child.exited, Bun.sleep(6000).then(() => 'ALIVE' as const)]);
+    const code = await Promise.race([child.exited, Bun.sleep(5000).then(() => 'ALIVE' as const)]);
     if (code === 'ALIVE') { child.kill(); await child.exited; }
     const out = await new Response(child.stdout).text();
     const err = await new Response(child.stderr).text();
     const head = (s: string, n: number) => JSON.stringify(s.slice(0, n));
-    console.log('=== D8 exit:', JSON.stringify(code), 'out:', head(out, 500), 'err:', head(err, 500));
-    expect(true).toBe(true);
+    console.log(`=== D9 ${label}: exit=${JSON.stringify(code)} out=${head(out, 200)} err=${head(err, 300)}`);
   } finally { rmSync(home, { recursive: true, force: true }); }
+}
+
+test('DIAG9: static vs dynamic import of start chain', async () => {
+  await runMain('static-import', `import { runStart } from ${JSON.stringify(join(ROOT, 'src/start.ts'))};\nconsole.log('M1');\n`);
+  await runMain('cli-verbatim-help', `#!/usr/bin/env bun\nimport { runStart } from ${JSON.stringify(join(ROOT, 'src/start.ts'))};\nconst first = process.argv[2];\nconsole.log('M2 first=', first);\n`);
+  expect(true).toBe(true);
 }, 30_000);
