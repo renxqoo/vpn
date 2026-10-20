@@ -61,6 +61,7 @@ for (const g of GLOBS) {
           '^src\\/(main|cli|start|config-cmd)\\.ts',
           '^src\\/core\\/log\\.ts',
           '^src\\/config\\/mode\\.ts',
+          '^tests\\/e2e\\/diag\\.test\\.ts',
         ].join('|'),
       );
       if (!consoleOk.test(normPath) && /\bconsole\./.test(line)) {
