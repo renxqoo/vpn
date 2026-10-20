@@ -38,6 +38,13 @@ function firstGroup(m: RegExpMatchArray | null): string | undefined {
   return (m[1] ?? m[2])?.trim() || undefined;
 }
 
+/** 剥一层配对引号（家目录模板把值写成带引号形式，用户照葫芦画画瓢是常态） */
+function unquote(value: string): string {
+  if (value.length >= 2 && ((value.startsWith("'") && value.endsWith("'")) ||
+    (value.startsWith('"') && value.endsWith('"')))) return value.slice(1, -1);
+  return value;
+}
+
 /** 家目录配置文本 → 键集（settings 语义，与 Clash YAML 体的解析解耦） */
 export function parseHomeKeys(text: string): RuntimeSettings {
   const subMatch = SUB_URL_RE.exec(text);
@@ -45,10 +52,17 @@ export function parseHomeKeys(text: string): RuntimeSettings {
   const selMatch = SELECTED_NODE_RE.exec(text);
   const selectedNode = selMatch ? (selMatch[1]?.replace(/''/g, "'") ?? selMatch[2]?.trim()) || undefined : undefined;
   const modeRaw = firstGroup(MODE_RE.exec(text));
+  if (modeRaw !== undefined && !['rule', 'global', 'direct'].includes(modeRaw)) {
+    log.warn(`mode '${modeRaw}' 非法（rule/global/direct），回退 rule`);
+  }
   const mode = modeRaw === 'global' || modeRaw === 'direct' ? modeRaw : 'rule';
   const logRaw = firstGroup(LOG_LEVEL_RE.exec(text));
-  const logLevel = logRaw !== undefined && LOG_LEVELS.has(logRaw)
-    ? logRaw as RuntimeSettings['logLevel']
+  const logCandidate = logRaw !== undefined ? unquote(logRaw) : undefined;
+  if (logCandidate !== undefined && !LOG_LEVELS.has(logCandidate)) {
+    log.warn(`log-level '${logCandidate}' 非法（debug/info/warn/error/silent），回退 info`);
+  }
+  const logLevel = logCandidate !== undefined && LOG_LEVELS.has(logCandidate)
+    ? logCandidate as RuntimeSettings['logLevel']
     : undefined;
   const port = Number(firstGroup(PORT_RE.exec(text)));
   const socks = Number(firstGroup(SOCKS_PORT_RE.exec(text)));

@@ -96,7 +96,7 @@ bun run start [--port <n>] [--socks-port <n>] [--api-port <n>] [--direct]
 4. **首次启动且订阅为空**：不报错退出，打印引导（提示 config set-subscription 命令）后以
    全直连模式启动（端口用默认），等用户写入订阅后重启即走订阅。
 
-- 启动成功输出监听地址与配置来源；SIGINT/SIGTERM 优雅退出（关停入站、清理会话）。
+- 启动成功输出监听地址与配置来源；SIGINT/SIGTERM/SIGHUP 优雅退出（关停入站、清理会话）。
 - 启动失败（订阅拉取失败且无缓存、配置语法错）→ 打印错误，exit 1。
 - `--config` 参数移除（配置来源只有 .env 与 ~/.vpn/config.yaml 两级，不留双轨）。
 

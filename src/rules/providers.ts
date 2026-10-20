@@ -97,7 +97,7 @@ export class RuleProviders {
     let text: string | null = null;
     if (cfg.url) {
       if (!providerUrlAllowed(cfg.url)) {
-        log.warn(`provider '${name}': url must be https, ignored`);
+        log.warn(`provider '${name}': url must be http(s), ignored`);
       } else {
         try {
           text = await withTimeout(this.store.fetch(cfg.url), 15000);

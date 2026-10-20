@@ -112,10 +112,9 @@ export function parseClashConfig(text: string): ClashConfig {
 
   const httpPort = optNum(m['port']) ?? optNum(m['mixed-port']) ?? 7890;
   const socksPort = optNum(m['socks-port']) ?? 7891;
-  const modeRaw = optStr(m['mode']) ?? 'rule';
-  if (modeRaw !== 'rule' && modeRaw !== 'global' && modeRaw !== 'direct') {
-    throw new ConfigError(`invalid mode '${modeRaw}'`);
-  }
+  // mode/log-level/external-controller/secret 是本地运行态：运行时只取本地配置，
+  // 订阅携带的值不参与启动，非法值也不阻断（节点/规则才是订阅的承重内容）。
+  const mode = (optStr(m['mode']) ?? 'rule') as ClashConfig['mode'];
   const logLevel = optStr(m['log-level']) ?? 'info';
   const apiAddr = optStr(m['external-controller']) ?? null;
   const apiSecret = optStr(m['secret']) ?? '';
@@ -224,7 +223,6 @@ export function parseClashConfig(text: string): ClashConfig {
     geoipUrl = optStr(gx['mmdb']) ?? optStr(gx['geoip']);
   }
 
-  const mode: ClashConfig['mode'] = modeRaw;
   return {
     httpPort,
     socksPort,

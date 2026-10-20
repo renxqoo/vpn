@@ -5,30 +5,28 @@ import { join, resolve } from 'node:path';
 
 const CLI = resolve(import.meta.dir, '../../src/cli.ts');
 
-interface Child {
+async function startChild(home: string): Promise<ChildHandle> {
+  return Bun.spawn(
+    [process.execPath, CLI, 'start', '--no-system-proxy',
+      '--direct', '--mixed-port', '0', '--api-port', '0'],
+    {
+      cwd: home, env: { ...process.env, HOME: home, USERPROFILE: home },
+      stdout: 'pipe', stderr: 'pipe',
+    },
+  );
+}
+
+interface ChildHandle {
   pid: number;
   exited: Promise<number>;
-  stdout: ReadableStream<Uint8Array>;
-  stderr: ReadableStream<Uint8Array>;
 }
 
-async function startChild(home: string, port: number): Promise<Child> {
-  return Bun.spawn([process.execPath, CLI, 'start', '--no-system-proxy',
-    '--mixed-port', String(port), '--api-port', '0'], {
-    cwd: home, env: { ...process.env, HOME: home, USERPROFILE: home },
-    stdout: 'pipe', stderr: 'pipe',
-  }) as unknown as Child;
-}
-
-async function waitReady(child: Child, home: string, timeoutMs = 15_000): Promise<void> {
+async function waitReady(child: ChildHandle, home: string, timeoutMs = 15_000): Promise<void> {
+  const controllerPath = join(home, '.vpn', 'controller.json');
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const text = existsSync(join(home, '.vpn', 'logs', 'kernel.log'))
-      ? readFileSync(join(home, '.vpn', 'logs', 'kernel.log'), 'utf8')
-      : '';
-    void text;
     try {
-      const controller = JSON.parse(readFileSync(join(home, '.vpn', 'controller.json'), 'utf8')) as { pid: number };
+      const controller = JSON.parse(readFileSync(controllerPath, 'utf8')) as { pid: number };
       if (controller.pid === child.pid) return;
     } catch (_e) { /* not yet */ }
     const exited = await Promise.race([child.exited, Bun.sleep(150).then(() => null)]);
@@ -37,11 +35,12 @@ async function waitReady(child: Child, home: string, timeoutMs = 15_000): Promis
   throw new Error('kernel not ready in time');
 }
 
-for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT'] as const) {
+// Windows 不支持通过 child.kill 投递可捕获的 POSIX 信号（见 system-proxy.test.ts 信号循环）。
+const signals = process.platform === 'win32' ? [] : ['SIGHUP', 'SIGTERM', 'SIGINT'] as const;
+for (const signal of signals) {
   test(`start restores clean state on ${signal} (no orphaned controller/journal)`, async () => {
     const home = mkdtempSync(join(tmpdir(), 'vpn-signal-'));
-    const port = 20000 + Math.floor(Math.random() * 20000);
-    const child = await startChild(home, port);
+    const child = await startChild(home);
     try {
       await waitReady(child, home);
       process.kill(child.pid, signal);

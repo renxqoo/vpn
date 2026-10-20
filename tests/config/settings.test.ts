@@ -182,6 +182,22 @@ describe('buildRuntimeConfig：合并 + CLI 覆盖 → 启动配置', () => {
     expect(cfg.config.logLevel).toBe('warn');
   });
 
+  test('家目录 log-level 带引号照常生效（模板把值写成引号形式）', async () => {
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'\nlog-level: 'silent'" }),
+      subscriptionYaml: subYaml,
+    });
+    expect(cfg.config.logLevel).toBe('silent');
+  });
+
+  test('订阅非法 mode 不阻断启动（运行时 mode 只来自本地）', async () => {
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'" }),
+      subscriptionYaml: subYaml.replace('mode: rule', 'mode: bogus'),
+    });
+    expect(cfg.config.mode).toBe('rule');
+  });
+
   test('本地 secret 显式空串 = 本机免鉴权选择，不回退订阅 secret', async () => {
     const cfg = await buildRuntimeConfig({
       files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'\nsecret: ''" }),

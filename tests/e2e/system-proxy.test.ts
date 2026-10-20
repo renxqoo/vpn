@@ -68,7 +68,7 @@ test('start enables real listener ports; proxy off leaves kernel running; stop r
 }, { timeout: 15000 });
 
 // Windows 不支持通过 child.kill 投递可捕获的 POSIX 信号；在该平台验证 API 优雅退出。
-const signals = process.platform === 'win32' ? ['API'] as const : ['SIGINT', 'SIGTERM'] as const;
+const signals = process.platform === 'win32' ? ['API'] as const : ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
 for (const signal of signals) {
   test(`start restores original proxies on ${signal}`, async () => {
     const h = harness();
