@@ -195,6 +195,15 @@ describe('buildRuntimeConfig：合并 + CLI 覆盖 → 启动配置', () => {
     expect(m.mode).toBe('global');
   });
 
+  test('--direct 是显式 CLI 运行态，压过家目录 mode（展示与路由一致）', async () => {
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'\nmode: global" }),
+      subscriptionYaml: null,
+      cli: { direct: true },
+    });
+    expect(cfg.config.mode).toBe('direct');
+  });
+
   test('订阅非法 mode 不阻断启动（运行时 mode 只来自本地）', async () => {
     const cfg = await buildRuntimeConfig({
       files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'" }),

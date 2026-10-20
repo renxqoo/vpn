@@ -180,7 +180,7 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
     ...config,
     httpPort: overrides.httpPort ?? config.httpPort,
     socksPort: overrides.socksPort ?? config.socksPort,
-    mode: settings.mode,
+    mode: opts.cli?.direct ? 'direct' : settings.mode,
     logLevel: settings.logLevel ?? 'info',
     apiAddr: `127.0.0.1:${effectiveApiPort}`,
     apiSecret: settings.secret ?? '',
