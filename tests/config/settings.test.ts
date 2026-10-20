@@ -190,6 +190,11 @@ describe('buildRuntimeConfig：合并 + CLI 覆盖 → 启动配置', () => {
     expect(cfg.config.logLevel).toBe('silent');
   });
 
+  test('家目录 mode 带引号照常生效（与 log-level 引号语义一致）', () => {
+    const m = mergeSource(inputs({ homeConfigText: "mode: 'global'" }));
+    expect(m.mode).toBe('global');
+  });
+
   test('订阅非法 mode 不阻断启动（运行时 mode 只来自本地）', async () => {
     const cfg = await buildRuntimeConfig({
       files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'" }),

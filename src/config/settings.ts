@@ -52,10 +52,11 @@ export function parseHomeKeys(text: string): RuntimeSettings {
   const selMatch = SELECTED_NODE_RE.exec(text);
   const selectedNode = selMatch ? (selMatch[1]?.replace(/''/g, "'") ?? selMatch[2]?.trim()) || undefined : undefined;
   const modeRaw = firstGroup(MODE_RE.exec(text));
-  if (modeRaw !== undefined && !['rule', 'global', 'direct'].includes(modeRaw)) {
-    log.warn(`mode '${modeRaw}' 非法（rule/global/direct），回退 rule`);
+  const modeCandidate = modeRaw !== undefined ? unquote(modeRaw) : undefined;
+  if (modeCandidate !== undefined && !['rule', 'global', 'direct'].includes(modeCandidate)) {
+    log.warn(`mode '${modeCandidate}' 非法（rule/global/direct），回退 rule`);
   }
-  const mode = modeRaw === 'global' || modeRaw === 'direct' ? modeRaw : 'rule';
+  const mode = modeCandidate === 'global' || modeCandidate === 'direct' ? modeCandidate : 'rule';
   const logRaw = firstGroup(LOG_LEVEL_RE.exec(text));
   const logCandidate = logRaw !== undefined ? unquote(logRaw) : undefined;
   if (logCandidate !== undefined && !LOG_LEVELS.has(logCandidate)) {
