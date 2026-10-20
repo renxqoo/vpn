@@ -1,39 +1,35 @@
 import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
-const CLI = resolve(import.meta.dir, '../../src/cli.ts');
-
-const TRACE = `
-console.log('T> preload loaded');
-process.on('exit', (c) => console.log('T> exit event code=', c));
-process.on('uncaughtException', (e) => console.log('T> uncaught', String(e).slice(0, 200)));
-process.on('unhandledRejection', (e) => console.log('T> unhandledRejection', String(e).slice(0, 200)));
-`;
-
-test('DIAG5: trace cli start via preload', async () => {
-  const home = mkdtempSync(join(tmpdir(), 'vpn-diag5-'));
-  const preload = join(home, 'trace.ts');
+test('DIAG6: does Bun.file(nonexistent).json() settle on this platform', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'vpn-diag6-'));
+  const script = join(home, 'p.ts');
   try {
-    await Bun.write(preload, TRACE);
-    const child = Bun.spawn([process.execPath, '--preload', preload, CLI, 'start', '--direct',
-      '--no-system-proxy', '--port', '0', '--socks-port', '0', '--api-port', '0'], {
+    await Bun.write(script, `
+console.log('P0');
+const f = Bun.file(${JSON.stringify(join(home, 'no-such.json'))});
+const t = setTimeout(() => { console.log('P_TIMEOUT_JSON_NEVER_SETTLES'); process.exit(42); }, 4000);
+try {
+  await f.json();
+  console.log('P_RESOLVED');
+} catch (e) {
+  console.log('P_REJECTED', String(e).slice(0, 120));
+}
+clearTimeout(t);
+const fe = await Bun.file(${JSON.stringify(join(home, 'no-such.json'))}).exists();
+console.log('P_EXISTS', fe);
+console.log('P_DONE');
+`);
+    const child = Bun.spawn([process.execPath, script], {
       cwd: home, env: { ...process.env, HOME: home, USERPROFILE: home },
       stdout: 'pipe', stderr: 'pipe', stdin: 'ignore',
     });
-    const code = await Promise.race([child.exited, Bun.sleep(6000).then(() => 'ALIVE' as const)]);
-    if (code === 'ALIVE') {
-      child.kill();
-      await child.exited;
-    }
-    const [out, err] = await Promise.all([
-      new Response(child.stdout).text(), new Response(child.stderr).text(),
-    ]);
-    const head = (s: string, n: number) => JSON.stringify(s.slice(0, n));
-    console.log('=== D5 exit:', JSON.stringify(code));
-    console.log('=== D5 out:', head(out, 900));
-    console.log('=== D5 err:', head(err, 900));
+    const code = await Promise.race([child.exited, Bun.sleep(8000).then(() => 'HANG' as const)]);
+    const out = await new Response(child.stdout).text();
+    console.log('=== D6 exit:', JSON.stringify(code), 'out:', JSON.stringify(out.slice(0, 400)));
+    if (code === 'HANG') child.kill();
     expect(true).toBe(true);
   } finally { rmSync(home, { recursive: true, force: true }); }
-}, 30_000);
+}, 20_000);
