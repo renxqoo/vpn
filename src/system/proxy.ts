@@ -25,6 +25,7 @@ interface Journal {
   socksPort: number;
   services: ServiceState[];
   restoring?: string[];
+  restoreFailed?: string;
 }
 const PROXIES = [
   { key: 'http', command: 'webproxy' },
@@ -92,6 +93,13 @@ export class SystemProxyManager {
   }
 
   ownsRecoveryState(): boolean { return this.read()?.pid === process.pid; }
+
+  /** 恢复失败残留：返回失败项描述；无残留或未接管返回 null */
+  pendingRestoreFailure(): string | null {
+    if (!this.supported || !existsSync(this.path)) return null;
+    const state = this.read();
+    return state?.restoreFailed ?? null;
+  }
   private run(args: string[]): Promise<string> {
     return this.customRun ? this.customRun(args, this.lockFd) : runNetworksetup(args, this.lockFd);
   }
@@ -104,6 +112,7 @@ export class SystemProxyManager {
       !portValid(state.httpPort) || !portValid(state.socksPort) || !Array.isArray(state.services) ||
       state.services.length === 0 || state.services.length > 128 || !state.services.every(serviceValid) ||
       (state.birth !== undefined && (typeof state.birth !== 'string' || state.birth.length > 200)) ||
+      (state.restoreFailed !== undefined && typeof state.restoreFailed !== 'string') ||
       (state.restoring !== undefined && (!Array.isArray(state.restoring) ||
         state.restoring.length > state.services.length * 3 || state.restoring.some((key) =>
           typeof key !== 'string' || !/^\d+:(http|https|socks)$/.test(key) ||
@@ -237,7 +246,11 @@ export class SystemProxyManager {
         catch (_e) { failed.push(`${saved.name}/discovery`); }
       }
     }
-    if (failed.length) throw new Error(`system proxy restore incomplete: ${failed.join(', ')}`);
+    if (failed.length) {
+      state.restoreFailed = failed.join(', ');
+      this.save(state);
+      throw new Error(`system proxy restore incomplete: ${failed.join(', ')}`);
+    }
     rmSync(this.path);
   }
 }

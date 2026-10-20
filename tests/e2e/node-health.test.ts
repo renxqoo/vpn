@@ -1,3 +1,4 @@
+import { cliSpawnE2eSupported, CLI_SPAWN_SKIP_REASON } from './cli-spawn.ts';
 import { expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,7 +8,9 @@ import { AnytlsTestServer } from '../../src/outbound/anytls/testing/server.ts';
 const cli = resolve(import.meta.dir, '../../src/cli.ts');
 const names = ['香港 01', '香港 02 / %', '美国 01'];
 
-test('CLI lists every node with auth and actual port, preserving selection/mode without repeat probes', async () => {
+test.skipIf(!cliSpawnE2eSupported)(
+  'CLI lists every node with auth and actual port, preserving selection/mode without repeat probes',
+  async () => {
   const root = mkdtempSync(join(tmpdir(), 'vpn-node-health-'));
   const server = new AnytlsTestServer({ password: 'health' });
   await server.start();
@@ -127,7 +130,9 @@ api-port: 1234
   }
 }, { timeout: 15000 });
 
-test('offline list and selection display prototype-named nodes as unmeasured', async () => {
+test.skipIf(!cliSpawnE2eSupported)(
+  'offline list and selection display prototype-named nodes as unmeasured',
+  async () => {
   const root = mkdtempSync(join(tmpdir(), 'vpn-node-names-'));
   const names = ['constructor', 'toString', '__proto__'];
   const yaml = `proxies:\n${names.map((name) => `  - ${JSON.stringify({

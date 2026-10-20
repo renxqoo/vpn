@@ -1,3 +1,4 @@
+import { cliSpawnE2eSupported, CLI_SPAWN_SKIP_REASON } from './cli-spawn.ts';
 import { expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -52,7 +53,9 @@ async function shutdownDaemon(home: string): Promise<void> {
   await drain(proc);
 }
 
-test('daemon happy path: spawn, ready, detached child survives, status shows daemon mode, clean shutdown', async () => {
+test.skipIf(!cliSpawnE2eSupported)(
+  'daemon happy path: spawn, ready, detached child survives, status shows daemon mode, clean shutdown',
+  async () => {
   const home = mkdtempSync(join(tmpdir(), 'vpn-daemon-happy-'));
   const sub = subscriptionServer();
   try {
@@ -89,7 +92,7 @@ test('daemon happy path: spawn, ready, detached child survives, status shows dae
   }
 }, 60_000);
 
-test('daemon start rejected when kernel already running', async () => {
+test.skipIf(!cliSpawnE2eSupported)('daemon start rejected when kernel already running', async () => {
   const home = mkdtempSync(join(tmpdir(), 'vpn-daemon-running-'));
   const sub = subscriptionServer();
   try {
@@ -114,7 +117,7 @@ test('daemon start rejected when kernel already running', async () => {
   }
 }, 60_000);
 
-test('daemon reports early exit with log tail when HTTP port is occupied', async () => {
+test.skipIf(!cliSpawnE2eSupported)('daemon reports early exit with log tail when HTTP port is occupied', async () => {
   const home = mkdtempSync(join(tmpdir(), 'vpn-daemon-early-'));
   const sub = subscriptionServer();
   const occupied = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } });

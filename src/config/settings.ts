@@ -30,10 +30,19 @@ const PORT_RE = /^port:\s*(\d+)\s*$/m;
 const SOCKS_PORT_RE = /^socks-port:\s*(\d+)\s*$/m;
 const MIXED_PORT_RE = /^mixed-port:\s*(\d+)\s*$/m;
 const SUB_URL_RE = /^subscription-url:[ \t]*(?:'((?:[^'\n]|'')*)'|([^\n]*?))[ \t]*$/m;
+const EXTERNAL_CONTROLLER_RE = /^external-controller:[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|([^\n]*?))[ \t]*$/m;
+const LOG_LEVELS = new Set<string>(['debug', 'info', 'warn', 'error', 'silent']);
 
 function firstGroup(m: RegExpMatchArray | null): string | undefined {
   if (!m) return undefined;
   return (m[1] ?? m[2])?.trim() || undefined;
+}
+
+/** 剥一层配对引号（家目录模板把值写成带引号形式，用户照葫芦画画瓢是常态） */
+function unquote(value: string): string {
+  if (value.length >= 2 && ((value.startsWith("'") && value.endsWith("'")) ||
+    (value.startsWith('"') && value.endsWith('"')))) return value.slice(1, -1);
+  return value;
 }
 
 /** 家目录配置文本 → 键集（settings 语义，与 Clash YAML 体的解析解耦） */
@@ -43,15 +52,30 @@ export function parseHomeKeys(text: string): RuntimeSettings {
   const selMatch = SELECTED_NODE_RE.exec(text);
   const selectedNode = selMatch ? (selMatch[1]?.replace(/''/g, "'") ?? selMatch[2]?.trim()) || undefined : undefined;
   const modeRaw = firstGroup(MODE_RE.exec(text));
-  const mode = modeRaw === 'global' || modeRaw === 'direct' ? modeRaw : 'rule';
+  const modeCandidate = modeRaw !== undefined ? unquote(modeRaw) : undefined;
+  if (modeCandidate !== undefined && !['rule', 'global', 'direct'].includes(modeCandidate)) {
+    log.warn(`mode '${modeCandidate}' 非法（rule/global/direct），回退 rule`);
+  }
+  const mode = modeCandidate === 'global' || modeCandidate === 'direct' ? modeCandidate : 'rule';
   const logRaw = firstGroup(LOG_LEVEL_RE.exec(text));
-  const LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error', 'silent']);
-  const logLevel = logRaw !== undefined && LOG_LEVELS.has(logRaw) ? logRaw : undefined;
+  const logCandidate = logRaw !== undefined ? unquote(logRaw) : undefined;
+  if (logCandidate !== undefined && !LOG_LEVELS.has(logCandidate)) {
+    log.warn(`log-level '${logCandidate}' 非法（debug/info/warn/error/silent），回退 info`);
+  }
+  const logLevel = logCandidate !== undefined && LOG_LEVELS.has(logCandidate)
+    ? logCandidate as RuntimeSettings['logLevel']
+    : undefined;
   const port = Number(firstGroup(PORT_RE.exec(text)));
   const socks = Number(firstGroup(SOCKS_PORT_RE.exec(text)));
   const mixed = Number(firstGroup(MIXED_PORT_RE.exec(text)));
   const secretMatch = /^secret:\s*(?:'([^'\n]*)'|"([^"\n]*)"|([^\n]*?))\s*$/m.exec(text);
   const secret = (secretMatch?.[1] ?? secretMatch?.[2] ?? secretMatch?.[3] ?? '').trim();
+  const controllerMatch = EXTERNAL_CONTROLLER_RE.exec(text);
+  const groups = controllerMatch?.slice(1);
+  const controllerText = groups ? (groups.find((g) => g !== undefined) ?? '') : null;
+  const controllerPortRaw = controllerText !== null ? Number(/:(\d+)$/.exec(controllerText)?.[1]) : undefined;
+  const controllerPortValid = controllerPortRaw !== undefined &&
+    Number.isInteger(controllerPortRaw) && controllerPortRaw >= 1 && controllerPortRaw <= 65535;
   return {
     subscriptionUrl: sub,
     selectedNode,
@@ -61,7 +85,7 @@ export function parseHomeKeys(text: string): RuntimeSettings {
     httpPort: Number.isInteger(port) && port > 0 ? port : undefined,
     socksPort: Number.isInteger(socks) && socks > 0 ? socks : undefined,
     mixedPort: Number.isInteger(mixed) && mixed > 0 ? mixed : undefined,
-    apiPort: undefined,
+    apiPort: controllerText !== null && controllerPortValid ? controllerPortRaw : undefined,
     source: sub ? 'home' : 'empty',
   };
 }
@@ -110,12 +134,6 @@ export interface RuntimeConfig {
   warnings: string[];
 }
 
-function parseApiPort(addr: string | null | undefined): number | undefined {
-  if (!addr) return undefined;
-  const m = /:(\d+)$/.exec(addr);
-  return m ? Number(m[1]) : undefined;
-}
-
 const DIRECT_FALLBACK_RULES: ClashConfig['rules'] = [
   { type: 'MATCH', payload: '', target: 'DIRECT', noResolve: false, raw: 'MATCH,DIRECT' },
 ];
@@ -156,13 +174,16 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
     config = parseClashConfig(opts.subscriptionYaml);
   }
 
+  const effectiveApiPort = overrides.apiPort ?? 9090;
+
   const finalConfig: ClashConfig = {
     ...config,
     httpPort: overrides.httpPort ?? config.httpPort,
     socksPort: overrides.socksPort ?? config.socksPort,
-    mode: settings.mode,
+    mode: opts.cli?.direct ? 'direct' : settings.mode,
     logLevel: settings.logLevel ?? 'info',
-    apiSecret: settings.secret !== undefined && settings.secret !== '' ? settings.secret : config.apiSecret,
+    apiAddr: `127.0.0.1:${effectiveApiPort}`,
+    apiSecret: settings.secret ?? '',
   };
 
   if (settings.selectedNode) {
@@ -187,8 +208,6 @@ export async function buildRuntimeConfig(opts: BuildOptions): Promise<RuntimeCon
   else if (settings.source === 'home') parts.push('~/.vpn/config.yaml（订阅）');
   if (opts.files.dotenvText !== null && settings.source !== 'dotenv') parts.push('.env（端口覆盖）');
   const sourceLabel = parts.length > 0 ? parts.join(' + ') : '空（直连）';
-
-  const effectiveApiPort = overrides.apiPort ?? parseApiPort(config.apiAddr) ?? 9090;
 
   return {
     config: finalConfig,

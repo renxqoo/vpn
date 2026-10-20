@@ -1,3 +1,4 @@
+import { cliSpawnE2eSupported, CLI_SPAWN_SKIP_REASON } from './cli-spawn.ts';
 import { expect, test } from 'bun:test';
 import { App } from '../../src/app.ts';
 import { buildRuntimeConfig } from '../../src/config/settings.ts';
@@ -35,7 +36,9 @@ for (const busy of ['http', 'socks', 'api'] as const) {
   });
 }
 
-test('CLI reports exact occupied HTTP endpoint even when subscription log level is silent', async () => {
+test.skipIf(!cliSpawnE2eSupported)(
+  'CLI reports exact occupied HTTP endpoint even when subscription log level is silent',
+  async () => {
   const root = mkdtempSync(join(tmpdir(), 'vpn-bind-error-'));
   const occupied = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } });
   const source = Bun.serve({ hostname: '127.0.0.1', port: 0,

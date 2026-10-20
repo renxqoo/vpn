@@ -56,12 +56,15 @@ test('partial enable failure rolls back, while failed restore retains snapshot a
     expect(existsSync(path)).toBe(false);
     network.fail = undefined;
     await manager.enable(7890, 7891);
+    expect(manager.pendingRestoreFailure()).toBeNull();
     network.fail = (args) => args[0] === '-setwebproxy';
     await expect(manager.disable()).rejects.toThrow('restore incomplete');
     expect(existsSync(path)).toBe(true);
+    expect(manager.pendingRestoreFailure()).toContain('Wi-Fi/http');
     network.fail = undefined;
     expect(await manager.disable()).toBe(true);
     expect(network.services).toEqual(original);
+    expect(manager.pendingRestoreFailure()).toBeNull();
   } finally { cleanup(); }
 });
 

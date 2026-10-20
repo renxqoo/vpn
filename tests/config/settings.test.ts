@@ -181,6 +181,77 @@ describe('buildRuntimeConfig：合并 + CLI 覆盖 → 启动配置', () => {
     });
     expect(cfg.config.logLevel).toBe('warn');
   });
+
+  test('家目录 log-level 带引号照常生效（模板把值写成引号形式）', async () => {
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'\nlog-level: 'silent'" }),
+      subscriptionYaml: subYaml,
+    });
+    expect(cfg.config.logLevel).toBe('silent');
+  });
+
+  test('家目录 mode 带引号照常生效（与 log-level 引号语义一致）', () => {
+    const m = mergeSource(inputs({ homeConfigText: "mode: 'global'" }));
+    expect(m.mode).toBe('global');
+  });
+
+  test('--direct 是显式 CLI 运行态，压过家目录 mode（展示与路由一致）', async () => {
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'\nmode: global" }),
+      subscriptionYaml: null,
+      cli: { direct: true },
+    });
+    expect(cfg.config.mode).toBe('direct');
+  });
+
+  test('订阅非法 mode 不阻断启动（运行时 mode 只来自本地）', async () => {
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'" }),
+      subscriptionYaml: subYaml.replace('mode: rule', 'mode: bogus'),
+    });
+    expect(cfg.config.mode).toBe('rule');
+  });
+
+  test('本地 secret 显式空串 = 本机免鉴权选择，不回退订阅 secret', async () => {
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'\nsecret: ''" }),
+      subscriptionYaml: `${subYaml}\nsecret: 'attacker-known-token'\n`,
+    });
+    expect(cfg.config.apiSecret).toBe('');
+  });
+
+  test('本地 secret 非空时本地赢（既有行为不变）', async () => {
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'\nsecret: 'local-token'" }),
+      subscriptionYaml: `${subYaml}\nsecret: 'attacker-known-token'\n`,
+    });
+    expect(cfg.config.apiSecret).toBe('local-token');
+  });
+
+  test('本地未写 secret 键时不引入订阅 secret（API 保持本机免鉴权）', async () => {
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'" }),
+      subscriptionYaml: `${subYaml}\nsecret: 'attacker-known-token'\n`,
+    });
+    expect(cfg.config.apiSecret).toBe('');
+  });
+
+  test('本地 external-controller 端口生效，订阅值不决定 API 监听端口', async () => {
+    const home = "subscription-url: 'https://s.example/x'\nexternal-controller: '127.0.0.1:9999'";
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: home }),
+      subscriptionYaml: `${subYaml}\nexternal-controller: '127.0.0.1:12345'\n`,
+    });
+    expect(cfg.overrides.apiPort).toBe(9999);
+  });
+
+  test('本地未写 external-controller 时 API 端口缺省 9090，不取订阅值', async () => {
+    const cfg = await buildRuntimeConfig({
+      files: inputs({ homeConfigText: "subscription-url: 'https://s.example/x'" }),
+      subscriptionYaml: `${subYaml}\nexternal-controller: '127.0.0.1:12345'\n`,
+    });
+    expect(cfg.overrides.apiPort).toBe(9090);
+  });
 });
 
 void mkdirSync;

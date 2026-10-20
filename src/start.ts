@@ -108,7 +108,13 @@ export async function runStart(argv: string[]): Promise<void> {
     },
   });
   const signalShutdown = () => {
-    void shutdown().catch((e: unknown) => log.error(`关闭失败，内核保留运行，请修复后重试 stop：${String(e)}`));
+    void shutdown().catch((e: unknown) => {
+      // 保命反馈不走 log-level 过滤（silent 也不能吞）：终端可能已随 SIGHUP 销毁，
+      // 持久化状态由 system-proxy 快照的 restoreFailed 标记承载，status/stop 会亮出。
+      console.error(
+        `关闭失败，内核保留运行，请修复后重试 stop：${String(e)}（bun-clash status 可查看残留状态）`,
+      );
+    });
   };
   process.on('SIGINT', signalShutdown);
   process.on('SIGTERM', signalShutdown);

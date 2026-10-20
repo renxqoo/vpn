@@ -74,7 +74,7 @@ test('stopping a provider during initial load cannot recreate its refresh timer'
   let fetches = 0;
   const pending = new Promise<string>((resolve) => { release = resolve; });
   const provider = new RuleProviders(new Map([['late', {
-    ...cfg('late', 'http://late.test/rules'), interval: 0.005,
+    ...cfg('late', 'https://late.test/rules'), interval: 0.005,
   }]]), {
     cacheDir: () => null,
     fetch: async () => { fetches++; return pending; },
@@ -93,7 +93,7 @@ test('stopping a provider during initial load cannot recreate its refresh timer'
 test('inherited fresh providers retain their original refresh deadline when another provider changes', async () => {
   let now = 0;
   let downloads = 0;
-  const configs = new Map([['kept', { ...cfg('kept', 'http://kept.test/rules'), interval: 0.1 }]]);
+  const configs = new Map([['kept', { ...cfg('kept', 'https://kept.test/rules'), interval: 0.1 }]]);
   const store: ProviderStore = {
     cacheDir: () => null,
     fetch: async () => { downloads++; return 'payload:\n  - kept.test\n'; },
@@ -112,4 +112,48 @@ test('inherited fresh providers retain their original refresh deadline when anot
     await Bun.sleep(30);
     expect(downloads).toBe(2);
   } finally { next.stop(); }
+});
+
+test('provider url must be http(s): file:// and other schemes from a subscription never reach fetch', async () => {
+  const fetched: string[] = [];
+  const store: ProviderStore = {
+    cacheDir: () => null,
+    fetch: async (u) => { fetched.push(u); return 'payload:\n  - x.test\n'; },
+    readFile: async () => null,
+    now: () => 1700000000000,
+  };
+  const rp = new RuleProviders(new Map([
+    ['file', { ...cfg('file', 'file:///etc/passwd') }],
+    ['ftp', { ...cfg('ftp', 'ftp://evil.test/rules') }],
+    ['ok', { ...cfg('ok', 'https://ok.test/rules') }],
+    ['plain', { ...cfg('plain', 'http://plain.test/rules') }],
+  ]), store);
+  await rp.loadAll();
+  rp.stop();
+  expect(fetched.sort()).toEqual(['http://plain.test/rules', 'https://ok.test/rules']);
+  expect(rp.getRuntime().get('file')?.resolved).toEqual({});
+  expect(rp.getRuntime().get('ftp')?.resolved).toEqual({});
+  expect(rp.getRuntime().get('ok')?.resolved.domains?.suffixes.has('x.test')).toBe(true);
+});
+
+test('provider path is rejected unless it stays inside the cache directory', async () => {
+  const read: string[] = [];
+  const store: ProviderStore = {
+    cacheDir: () => '/tmp/bunclash-provider-test',
+    fetch: async () => { throw new Error('offline'); },
+    readFile: async (p) => { read.push(p); return 'payload:\n  - leaked.test\n'; },
+    now: () => 1700000000000,
+  };
+  const rp = new RuleProviders(new Map([
+    ['escape', { name: 'escape', behavior: 'domain', format: 'yaml', path: '/etc/passwd', interval: 86400 }],
+    ['inside', {
+      name: 'inside', behavior: 'domain', format: 'yaml',
+      path: '/tmp/bunclash-provider-test/ruleset-inside.txt', interval: 86400,
+    }],
+  ]), store);
+  await rp.loadAll();
+  rp.stop();
+  expect(read).toEqual(['/tmp/bunclash-provider-test/ruleset-inside.txt']);
+  expect(rp.getRuntime().get('escape')?.resolved).toEqual({});
+  expect(rp.getRuntime().get('inside')?.resolved.domains?.suffixes.has('leaked.test')).toBe(true);
 });

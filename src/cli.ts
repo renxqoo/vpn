@@ -2,11 +2,9 @@
 /**
  * bun-clash CLI 入口（design.md §1.1 第三批）：单一 bin，子命令分发。
  * dev：bun run cli <cmd>；发布后：bun-clash <cmd>
+ * 子命令模块全部按需加载：轻命令（help/status）不拉起出站/内的核心，
+ * 也避免入口静态依赖图在 Windows 上使子进程提前退出。
  */
-
-import { runStart } from './start.ts';
-import { runConfigCommand } from './config-cmd.ts';
-import { runDaemonStart } from './system/daemon.ts';
 
 interface Command {
   name: string;
@@ -30,9 +28,11 @@ const commands: Command[] = [
       if (args.includes('--daemon')) {
         // 剥离 --daemon 后透传给子进程；已在运行检测在子进程 start 内完成（exit 1）
         const rest = args.filter((a) => a !== '--daemon');
+        const { runDaemonStart } = await import('./system/daemon.ts');
         await runDaemonStart({ entry: import.meta.path, args: rest });
         return;
       }
+      const { runStart } = await import('./start.ts');
       await runStart(args);
     },
   },
@@ -109,6 +109,7 @@ const commands: Command[] = [
     name: 'config',
     summary: 'set-subscription <URL> | show',
     async run(args) {
+      const { runConfigCommand } = await import('./config-cmd.ts');
       await runConfigCommand(args);
     },
   },

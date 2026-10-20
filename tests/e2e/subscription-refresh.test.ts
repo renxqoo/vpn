@@ -1,3 +1,4 @@
+import { cliSpawnE2eSupported, CLI_SPAWN_SKIP_REASON } from './cli-spawn.ts';
 import { expect, test } from 'bun:test';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,7 +26,9 @@ function reservePorts(): number[] {
   return ports;
 }
 
-test('CLI subscription update synchronizes .env, stored selection and a running kernel', async () => {
+test.skipIf(!cliSpawnE2eSupported)(
+  'CLI subscription update synchronizes .env, stored selection and a running kernel',
+  async () => {
   const root = mkdtempSync(join(tmpdir(), 'vpn-refresh-e2e-'));
   const cert = await generateSelfSignedCert();
   let yaml = subscription(['旧节点']);
@@ -41,15 +44,19 @@ test('CLI subscription update synchronizes .env, stored selection and a running 
   });
   const url = `https://127.0.0.1:${provider.port}/sub`;
   const [httpPort, socksPort, apiPort] = reservePorts();
-  const changedApiPort = reservePorts()[2];
-  yaml += `external-controller: '127.0.0.1:${apiPort}'\nsecret: 'e2e-secret'\n`;
+  yaml += `external-controller: '127.0.0.1:${reservePorts()[2]}'\nsecret: 'subscription-injected-secret'\n`;
   const env = { ...process.env, HOME: root, USERPROFILE: root, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
   const homePath = join(root, '.vpn/config.yaml');
   const envPath = join(root, '.env');
   await Bun.write(envPath, `SUBSCRIPTION_URL=${url}\nPORT=${httpPort}\nSOCKS_PORT=${socksPort}\n`);
-  await Bun.write(homePath, `subscription-url: '${url}'\nselected-node: '旧节点'\n`, {
-    createPath: true,
-  });
+  const homeConfig = [
+    `subscription-url: '${url}'`,
+    "selected-node: '旧节点'",
+    `external-controller: '127.0.0.1:${apiPort}'`,
+    "secret: 'e2e-secret'",
+    '',
+  ].join('\n');
+  await Bun.write(homePath, homeConfig, { createPath: true });
   const kernel = Bun.spawn([process.execPath, cli, 'start', '--no-system-proxy'], {
     cwd: root, env, stdout: 'pipe', stderr: 'pipe',
   });
@@ -80,11 +87,11 @@ test('CLI subscription update synchronizes .env, stored selection and a running 
     expect((await proxies()).proxies['🚀 节点选择']?.now).toBe('旧节点');
 
     yaml = subscription(['新默认', '新节点']) +
-      `external-controller: '127.0.0.1:${changedApiPort}'\nsecret: 'changed-secret'\n`;
+      `external-controller: '127.0.0.1:${reservePorts()[2]}'\nsecret: 'changed-secret'\n`;
     expect((await fetch(`${base}/configs/reload`, { method: 'POST', headers })).status).toBe(204);
     expect((await proxies()).proxies['旧节点']).toBeUndefined();
     expect((await proxies()).proxies['🚀 节点选择']?.now).toBe('新默认');
-    // 订阅改变 API 端口/secret 后，CLI 仍须找到原监听器并使用原 secret。
+    // 订阅试图改 API 端口/secret：本地配置是唯一权威，内核仍在原地址、用原 secret 可达。
     expect(await Bun.file(homePath).text()).not.toContain('selected-node:');
 
     const pick = await command('nodes', '--node', '新节点');

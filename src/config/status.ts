@@ -10,6 +10,7 @@ import { readSelectedNode } from './nodes.ts';
 import { readMode } from './mode.ts';
 import { resolveController, readRunningController } from './controller.ts';
 import { KERNEL_LOG_PATH } from './paths.ts';
+import { createSystemProxyManager } from '../system/proxy.ts';
 import { formatNodeHealth, healthFromProxies, nodeHealthLines, type NodeHealthMap } from './node-health.ts';
 
 export interface ApiState {
@@ -105,6 +106,11 @@ export async function runStatusCommand(apiPortArg?: number): Promise<void> {
   const api = await probeApi(apiPort, secret);
 
   p.intro('bun-clash 状态');
+
+  const restoreFailure = createSystemProxyManager().pendingRestoreFailure();
+  if (restoreFailure !== null) {
+    p.log.error(`系统代理恢复失败残留（${restoreFailure}）——请重试 bun-clash stop 或 proxy off`);
+  }
 
   // 运行状态行
   if (api) {
