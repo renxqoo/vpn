@@ -1,41 +1,31 @@
 import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { spawn as nodeSpawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 
 const CLI = resolve(import.meta.dir, '../../src/cli.ts');
 
-async function probe(label: string, env: Record<string, string>) {
-  const home = mkdtempSync(join(tmpdir(), 'vpn-diag17-'));
+test('DIAG18: node:child_process spawn of cli start', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'vpn-diag18-'));
   try {
-    const child = Bun.spawn([process.execPath, CLI, 'start', '--direct', '--no-system-proxy',
+    const child = nodeSpawn(process.execPath, [CLI, 'start', '--direct', '--no-system-proxy',
       '--port', '0', '--socks-port', '0', '--api-port', '0'], {
-      cwd: home, env, stdout: 'pipe', stderr: 'pipe', stdin: 'ignore',
+      cwd: home, env: { ...process.env, HOME: home, USERPROFILE: home },
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-    const code = await Promise.race([child.exited, Bun.sleep(4500).then(() => 'ALIVE' as const)]);
-    if (code === 'ALIVE') { child.kill(); await child.exited; }
-    const out = await new Response(child.stdout).text();
-    const err = await new Response(child.stderr).text();
+    let out = '';
+    let err = '';
+    child.stdout!.on('data', (d) => { out += d; });
+    child.stderr!.on('data', (d) => { err += d; });
+    const code = await new Promise<number | 'ALIVE'>((resolveCode) => {
+      const timer = setTimeout(() => resolveCode('ALIVE'), 4500);
+      child.on('exit', (c) => { clearTimeout(timer); resolveCode(c ?? -1); });
+    });
+    if (code === 'ALIVE') child.kill();
+    await new Promise((r) => setTimeout(r, 200));
     const head = (s: string, n: number) => JSON.stringify(s.slice(0, n));
-    console.log(`=== D17 ${label}: exit=${JSON.stringify(code)} out=${head(out, 80)} err=${head(err, 150)}`);
+    console.log(`=== D18 node-spawn: exit=${JSON.stringify(code)} out=${head(out, 100)} err=${head(err, 150)}`);
+    expect(true).toBe(true);
   } finally { rmSync(home, { recursive: true, force: true }); }
-}
-
-const ARGS_HOME = (home: string) => ({ HOME: home, USERPROFILE: home });
-
-test('DIAG17: env sanitization probe', async () => {
-  const full = process.env as Record<string, string>;
-  await probe('full-env', full);
-  const minimal: Record<string, string> = {
-    PATH: full.PATH ?? '', SYSTEMROOT: full.SYSTEMROOT ?? full.SystemRoot ?? '',
-    TEMP: full.TEMP ?? '', TMP: full.TMP ?? '',
-    ...(process.platform === 'win32' ? {} : ARGS_HOME('')),
-  };
-  const home = mkdtempSync(join(tmpdir(), 'vpn-diag17h-'));
-  minimal.HOME = home;
-  minimal.USERPROFILE = home;
-  await probe('minimal-env', minimal);
-  const suspicious = Object.keys(full).filter((k) => /^BUN_|^GITHUB|^RUNNER|^NODE|^CI/i.test(k));
-  console.log('=== D17 suspicious keys:', JSON.stringify(suspicious));
-  expect(true).toBe(true);
-}, 40_000);
+}, 30_000);
