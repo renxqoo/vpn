@@ -1,3 +1,4 @@
+import { cliSpawnE2eSupported, CLI_SPAWN_SKIP_REASON } from './cli-spawn.ts';
 import { expect, test } from 'bun:test';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,7 +26,9 @@ function reservePorts(): number[] {
   return ports;
 }
 
-test('CLI subscription update synchronizes .env, stored selection and a running kernel', async () => {
+test.skipIf(!cliSpawnE2eSupported)(
+  'CLI subscription update synchronizes .env, stored selection and a running kernel',
+  async () => {
   const root = mkdtempSync(join(tmpdir(), 'vpn-refresh-e2e-'));
   const cert = await generateSelfSignedCert();
   let yaml = subscription(['旧节点']);

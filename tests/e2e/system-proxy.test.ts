@@ -1,3 +1,4 @@
+import { cliSpawnE2eSupported, CLI_SPAWN_SKIP_REASON } from './cli-spawn.ts';
 import { expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,7 +32,9 @@ async function waitFor(check: () => boolean | Promise<boolean>, timeout = 5000) 
   throw new Error('condition timed out');
 }
 
-test('start enables real listener ports; proxy off leaves kernel running; stop restores and closes it', async () => {
+test.skipIf(!cliSpawnE2eSupported)(
+  'start enables real listener ports; proxy off leaves kernel running; stop restores and closes it',
+  async () => {
   const h = harness();
   const kernel = h.spawn('start', '--direct', '--port', '0', '--socks-port', '0', '--api-port', '0');
   try {
@@ -70,7 +73,7 @@ test('start enables real listener ports; proxy off leaves kernel running; stop r
 // Windows 不支持通过 child.kill 投递可捕获的 POSIX 信号；在该平台验证 API 优雅退出。
 const signals = process.platform === 'win32' ? ['API'] as const : ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
 for (const signal of signals) {
-  test(`start restores original proxies on ${signal}`, async () => {
+  test.skipIf(!cliSpawnE2eSupported)(`start restores original proxies on ${signal}`, async () => {
     const h = harness();
     const kernel = h.spawn('start', '--direct', '--port', '0', '--socks-port', '0', '--api-port', '0');
     try {
@@ -89,7 +92,7 @@ for (const signal of signals) {
   }, { timeout: 10000 });
 }
 
-test('system setup failure rolls back and releases all kernel listeners', async () => {
+test.skipIf(!cliSpawnE2eSupported)('system setup failure rolls back and releases all kernel listeners', async () => {
   const h = harness();
   writeFileSync(join(h.root, 'fake-fail-once'), '-setsecurewebproxy');
   try {
@@ -102,7 +105,9 @@ test('system setup failure rolls back and releases all kernel listeners', async 
   } finally { h.cleanup(); }
 }, { timeout: 10000 });
 
-test('--no-system-proxy leaves system settings untouched and still supports stop', async () => {
+test.skipIf(!cliSpawnE2eSupported)(
+  '--no-system-proxy leaves system settings untouched and still supports stop',
+  async () => {
   const h = harness();
   const kernel = h.spawn(
     'start', '--no-system-proxy', '--direct', '--port', '0', '--socks-port', '0', '--api-port', '0',
@@ -120,7 +125,9 @@ test('--no-system-proxy leaves system settings untouched and still supports stop
   }
 }, { timeout: 10000 });
 
-test('crashed kernel leaves a recoverable snapshot; proxy off restores it without a live API', async () => {
+test.skipIf(!cliSpawnE2eSupported)(
+  'crashed kernel leaves a recoverable snapshot; proxy off restores it without a live API',
+  async () => {
   const h = harness();
   const kernel = h.spawn('start', '--direct', '--port', '0', '--socks-port', '0', '--api-port', '0');
   try {
@@ -137,7 +144,9 @@ test('crashed kernel leaves a recoverable snapshot; proxy off restores it withou
   }
 }, { timeout: 10000 });
 
-test('failed stop retains the live kernel and snapshot, and a subsequent stop retries restoration', async () => {
+test.skipIf(!cliSpawnE2eSupported)(
+  'failed stop retains the live kernel and snapshot, and a subsequent stop retries restoration',
+  async () => {
   const h = harness();
   const kernel = h.spawn('start', '--direct', '--port', '0', '--socks-port', '0', '--api-port', '0');
   try {
@@ -157,7 +166,9 @@ test('failed stop retains the live kernel and snapshot, and a subsequent stop re
   }
 }, { timeout: 10000 });
 
-test('crash during system mutation releases the operation lock and allows offline recovery', async () => {
+test.skipIf(!cliSpawnE2eSupported)(
+  'crash during system mutation releases the operation lock and allows offline recovery',
+  async () => {
   const h = harness();
   writeFileSync(join(h.root, 'fake-pause-after'), '-setwebproxy');
   const kernel = h.spawn('start', '--direct', '--port', '0', '--socks-port', '0', '--api-port', '0');
@@ -178,7 +189,7 @@ test('crash during system mutation releases the operation lock and allows offlin
   }
 }, { timeout: 10000 });
 
-test('recovery waits for a native setter that outlives its crashed parent', async () => {
+test.skipIf(!cliSpawnE2eSupported)('recovery waits for a native setter that outlives its crashed parent', async () => {
   const h = harness();
   writeFileSync(join(h.root, 'fake-delayed-native'), '1');
   const kernel = h.spawn('start', '--direct', '--port', '0', '--socks-port', '0', '--api-port', '0');
@@ -199,7 +210,9 @@ test('recovery waits for a native setter that outlives its crashed parent', asyn
   }
 }, { timeout: 10000 });
 
-test('setup plus rollback failure keeps a usable kernel until system recovery succeeds', async () => {
+test.skipIf(!cliSpawnE2eSupported)(
+  'setup plus rollback failure keeps a usable kernel until system recovery succeeds',
+  async () => {
   const h = harness();
   writeFileSync(join(h.root, 'fake-fail-once'), '-setsecurewebproxy');
   writeFileSync(join(h.root, 'fake-fail-restore'), '1');
