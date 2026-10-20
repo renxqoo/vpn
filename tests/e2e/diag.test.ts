@@ -1,33 +1,25 @@
 import { expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
-test('DIAG11: Bun.file on missing path in spawn child (8.3-shortname probe)', async () => {
-  const home = mkdtempSync(join(tmpdir(), 'vpn-diag11-'));
-  const script = join(home, 'p.ts');
+const CLI = resolve(import.meta.dir, '../../src/cli.ts');
+
+test('DIAG12: real cli.ts with cwd on module drive vs tmp drive', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'vpn-diag12-'));
   try {
-    const target = join(home, 'missing.json');
-    const targetLiteral = JSON.stringify(target);
-    await Bun.write(script, `
-console.log('Q0 home =', ${targetLiteral.slice(0, 20)} + '...');
-console.log('Q1 existsSync =', require('node:fs').existsSync(${targetLiteral}));
-const f = Bun.file(${targetLiteral});
-console.log('Q2 Bun.file constructed');
-const t = setTimeout(() => { console.log('Q_TIMEOUT_BUN_FILE_NEVER_SETTLES'); process.exit(9); }, 3500);
-try { await f.json(); console.log('Q3 resolved'); } catch (e) { console.log('Q3 rejected', String(e).slice(0, 100)); }
-clearTimeout(t);
-console.log('Q4 exists =', await f.exists());
-`);
-    const child = Bun.spawn([process.execPath, script], {
-      cwd: home, env: { ...process.env, HOME: home, USERPROFILE: home },
+    const child = Bun.spawn([process.execPath, CLI, 'start', '--direct', '--no-system-proxy',
+      '--port', '0', '--socks-port', '0', '--api-port', '0'], {
+      cwd: resolve(import.meta.dir, '../..'),
+      env: { ...process.env, HOME: home, USERPROFILE: home },
       stdout: 'pipe', stderr: 'pipe', stdin: 'ignore',
     });
-    const code = await Promise.race([child.exited, Bun.sleep(8000).then(() => 'HANG' as const)]);
-    if (code === 'HANG') { child.kill(); await child.exited; }
+    const code = await Promise.race([child.exited, Bun.sleep(5000).then(() => 'ALIVE' as const)]);
+    if (code === 'ALIVE') { child.kill(); await child.exited; }
     const out = await new Response(child.stdout).text();
-    console.log('=== D11 exit:', JSON.stringify(code));
-    console.log('=== D11 out:', JSON.stringify(out.slice(0, 500)));
+    const err = await new Response(child.stderr).text();
+    const head = (s: string, n: number) => JSON.stringify(s.slice(0, n));
+    console.log('=== D12(repodir-cwd) exit:', JSON.stringify(code), 'out:', head(out, 400), 'err:', head(err, 300));
     expect(true).toBe(true);
   } finally { rmSync(home, { recursive: true, force: true }); }
-}, 20_000);
+}, 30_000);
