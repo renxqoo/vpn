@@ -3,15 +3,21 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const CLI = resolve(import.meta.dir, '../../src/cli.ts');
+const E2E = import.meta.dir;
+const ROOT = resolve(E2E, '../..');
 
-test('DIAG12: real cli.ts with cwd on module drive vs tmp drive', async () => {
-  const home = mkdtempSync(join(tmpdir(), 'vpn-diag12-'));
+test('DIAG13: relative-import clone of cli.ts living in repo tree', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'vpn-diag13-'));
+  const cloneDir = join(E2E, 'diag-clone');
+  const clone = join(cloneDir, 'cli-clone.ts');
   try {
-    const child = Bun.spawn([process.execPath, CLI, 'start', '--direct', '--no-system-proxy',
+    const source = await Bun.file(join(ROOT, 'src/cli.ts')).text();
+    await Bun.write(clone, source.replace("from './start.ts'", "from '../../../src/start.ts'")
+      .replace("from './config-cmd.ts'", "from '../../../src/config-cmd.ts'")
+      .replace("from './system/daemon.ts'", "from '../../../src/system/daemon.ts'"));
+    const child = Bun.spawn([process.execPath, clone, 'start', '--direct', '--no-system-proxy',
       '--port', '0', '--socks-port', '0', '--api-port', '0'], {
-      cwd: resolve(import.meta.dir, '../..'),
-      env: { ...process.env, HOME: home, USERPROFILE: home },
+      cwd: home, env: { ...process.env, HOME: home, USERPROFILE: home },
       stdout: 'pipe', stderr: 'pipe', stdin: 'ignore',
     });
     const code = await Promise.race([child.exited, Bun.sleep(5000).then(() => 'ALIVE' as const)]);
@@ -19,7 +25,10 @@ test('DIAG12: real cli.ts with cwd on module drive vs tmp drive', async () => {
     const out = await new Response(child.stdout).text();
     const err = await new Response(child.stderr).text();
     const head = (s: string, n: number) => JSON.stringify(s.slice(0, n));
-    console.log('=== D12(repodir-cwd) exit:', JSON.stringify(code), 'out:', head(out, 400), 'err:', head(err, 300));
+    console.log('=== D13(clone-in-repo) exit:', JSON.stringify(code), 'out:', head(out, 300), 'err:', head(err, 300));
     expect(true).toBe(true);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally {
+    rmSync(cloneDir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  }
 }, 30_000);
