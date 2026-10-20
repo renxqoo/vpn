@@ -24,7 +24,15 @@ async function runMain(label: string, mainTs: string) {
 }
 
 test('DIAG9: static vs dynamic import of start chain', async () => {
-  await runMain('static-import', `import { runStart } from ${JSON.stringify(join(ROOT, 'src/start.ts'))};\nconsole.log('M1');\n`);
-  await runMain('cli-verbatim-help', `#!/usr/bin/env bun\nimport { runStart } from ${JSON.stringify(join(ROOT, 'src/start.ts'))};\nconst first = process.argv[2];\nconsole.log('M2 first=', first);\n`);
+  const startPath = JSON.stringify(join(ROOT, 'src/start.ts'));
+  await runMain('static-import', `import { runStart } from ${startPath};\nconsole.log('M1');\n`);
+  const vhelp = [
+    '#!/usr/bin/env bun',
+    `import { runStart } from ${startPath};`,
+    'const first = process.argv[2];',
+    "console.log('M2 first=', first);",
+    '',
+  ].join('\n');
+  await runMain('cli-verbatim-help', vhelp);
   expect(true).toBe(true);
 }, 30_000);
